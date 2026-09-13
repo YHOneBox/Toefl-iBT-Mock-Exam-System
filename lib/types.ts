@@ -45,6 +45,7 @@ export type McqQuestion = {
   options: [string, string, string, string];
   answerKey: number;
   rationale: string;
+  passageAction?: "insert" | "select";
   insertSentence?: string;
   insertPositions?: number[];
 };
@@ -103,6 +104,7 @@ export type AudioRef = {
   accent: Accent;
   gender: "male" | "female";
   fallbackTts: boolean;
+  rate?: number;
 };
 
 export type ListenChooseItem = {
@@ -127,6 +129,7 @@ export type SpokenSet = {
   speakers: Array<{ id: string; label: string; gender: "male" | "female"; accent: Accent }>;
   script: Array<{ speakerId: string; text: string }>;
   audio: AudioRef;
+  lineAudio?: AudioRef[];
   questions: McqQuestion[];
 };
 

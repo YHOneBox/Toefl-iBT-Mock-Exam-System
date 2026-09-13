@@ -1,6 +1,15 @@
 "use client";
 
+import { defaultInsertPositions, splitSentences } from "@/lib/passage";
 import type { AcademicSet, CompleteTheWordsSet, DailyLifeSet, McqQuestion } from "@/lib/types";
+
+function isInsertQuestion(q: McqQuestion) {
+  return q.passageAction === "insert" || Boolean(q.insertSentence) || /insert/i.test(q.skill);
+}
+
+function isSelectQuestion(q: McqQuestion) {
+  return q.passageAction === "select" || /select sentence/i.test(q.skill);
+}
 
 export function CompleteTheWordsTask({
   set,
@@ -33,6 +42,7 @@ export function CompleteTheWordsTask({
               <span>{token.prefix}</span>
               <input
                 value={typed}
+                size={letters}
                 maxLength={token.answer?.length || 12}
                 disabled={review}
                 spellCheck={false}
@@ -62,18 +72,20 @@ export function McqList({
   values,
   onChange,
   review,
+  startAt = 1,
 }: {
   questions: McqQuestion[];
   values: Record<string, number | null>;
   onChange: (id: string, value: number) => void;
   review?: boolean;
+  startAt?: number;
 }) {
   return (
     <div className="space-y-5">
       {questions.map((q, idx) => (
         <div key={q.id}>
           <p className="mb-2 font-medium">
-            {idx + 1}. {q.stem}
+            {startAt + idx}. {q.stem}
           </p>
           <div className="space-y-2">
             {q.options.map((opt, i) => {
@@ -125,15 +137,46 @@ export function DailyLifeTask({
   review?: boolean;
 }) {
   return (
-    <div className="grid gap-5 md:grid-cols-2">
-      <div className="panel p-5">
+    <div className="split-panes">
+      <div className="split-pane panel p-5">
         <h2 className="mb-2 text-lg font-semibold">{set.title}</h2>
         <pre className="whitespace-pre-wrap font-sans text-sm leading-6">{set.text}</pre>
       </div>
-      <div className="panel p-5">
+      <div className="split-pane panel p-5">
         <McqList questions={set.questions} values={values} onChange={onChange} review={review} />
       </div>
     </div>
+  );
+}
+
+function InsertSquare({
+  label,
+  selected,
+  correct,
+  wrong,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  correct?: boolean;
+  wrong?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      data-selected={selected}
+      data-review-correct={correct || undefined}
+      data-review-wrong={wrong || undefined}
+      onClick={onClick}
+      className="insert-square"
+      aria-label={`Insert at square ${label}`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -148,14 +191,97 @@ export function AcademicTask({
   onChange: (id: string, value: number) => void;
   review?: boolean;
 }) {
+  const sentences = splitSentences(set.text);
+  const insertQ = set.questions.find(isInsertQuestion);
+  const selectQ = set.questions.find(isSelectQuestion);
+  const positions = insertQ
+    ? (insertQ.insertPositions?.length === 4 ? insertQ.insertPositions : defaultInsertPositions(sentences.length))
+    : [];
   return (
-    <div className="grid gap-5 md:grid-cols-2">
-      <div className="panel p-5">
+    <div className="split-panes">
+      <div className="split-pane panel p-5">
         <h2 className="mb-2 text-lg font-semibold">{set.title}</h2>
-        <p className="text-sm leading-7">{set.text}</p>
+        {insertQ?.insertSentence && (
+          <div className="mb-4 rounded border border-[#c5d0da] bg-[#f8fafc] p-3 text-sm">
+            <p className="mb-1 font-semibold">Sentence to insert</p>
+            <p>{insertQ.insertSentence}</p>
+          </div>
+        )}
+        <p className="text-sm leading-8">
+          {sentences.map((sentence, index) => {
+            const squareAt = positions.indexOf(index);
+            const selectedSentence = selectQ ? values[selectQ.id] === index : false;
+            const correctSentence = Boolean(review && selectQ && selectQ.answerKey === index);
+            const wrongSentence = Boolean(review && selectQ && selectedSentence && selectQ.answerKey !== index);
+            return (
+              <span key={index}>
+                {selectQ ? (
+                  <button
+                    type="button"
+                    disabled={review}
+                    data-selected={selectedSentence}
+                    data-review-correct={correctSentence || undefined}
+                    data-review-wrong={wrongSentence || undefined}
+                    onClick={() => onChange(selectQ.id, index)}
+                    className="passage-sent"
+                  >
+                    {sentence}
+                  </button>
+                ) : (
+                  <span>{sentence}</span>
+                )}{" "}
+                {insertQ && squareAt >= 0 && (
+                  <InsertSquare
+                    label={String.fromCharCode(65 + squareAt)}
+                    selected={values[insertQ.id] === squareAt}
+                    correct={Boolean(review && insertQ.answerKey === squareAt)}
+                    wrong={Boolean(review && values[insertQ.id] === squareAt && insertQ.answerKey !== squareAt)}
+                    disabled={review}
+                    onClick={() => onChange(insertQ.id, squareAt)}
+                  />
+                )}
+              </span>
+            );
+          })}
+        </p>
       </div>
-      <div className="panel p-5">
-        <McqList questions={set.questions} values={values} onChange={onChange} review={review} />
+      <div className="split-pane panel space-y-5 p-5">
+        {set.questions.map((q, idx) => {
+          if (isInsertQuestion(q)) {
+            return (
+              <div key={q.id}>
+                <p className="mb-2 font-medium">
+                  {idx + 1}. {q.stem}
+                </p>
+                <p className="text-sm text-[#5b6775]">
+                  Click the black square in the passage where the sentence best fits.
+                </p>
+                {review && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
+              </div>
+            );
+          }
+          if (isSelectQuestion(q)) {
+            return (
+              <div key={q.id}>
+                <p className="mb-2 font-medium">
+                  {idx + 1}. {q.stem}
+                </p>
+                <p className="text-sm text-[#5b6775]">Click the sentence in the passage.</p>
+                {review && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
+              </div>
+            );
+          }
+          return (
+            <McqList
+              key={q.id}
+              questions={[q]}
+              values={values}
+              onChange={onChange}
+              review={review}
+              startAt={idx + 1}
+            />
+          );
+        })}
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import { makeId } from "../ids";
 import type { BuildSentenceItem, DiscussionTask, EmailTask } from "../types";
 import { cefrAllowed, type DifficultyBand } from "./difficulty";
+import { fingerprint, seedKey } from "./grown-bank";
+import type { SentenceSeed } from "./seeds";
 import { pick, pickOne, shuffle } from "./util";
 
 const SENTENCES: Array<Omit<BuildSentenceItem, "id" | "taskType">> = [
@@ -185,13 +187,21 @@ const DISCUSSIONS: Array<Omit<DiscussionTask, "id" | "taskType">> = [
   },
 ];
 
-export function makeWritingBundle(band: DifficultyBand = "standard") {
+export function makeWritingBundle(
+  band: DifficultyBand = "standard",
+  extras: SentenceSeed[] = [],
+  seen: Set<string> = new Set(),
+) {
   const allow = new Set(cefrAllowed(band));
-  const sentencePool = SENTENCES.filter((row) => allow.has(row.cefr));
-  const emailPool = EMAILS.filter((row) => allow.has(row.cefr));
-  const discussionPool = DISCUSSIONS.filter((row) => allow.has(row.cefr));
+  const unseen = (row: SentenceSeed) => !seen.has(seedKey("sentences", row));
+  const merged = [...extras].reverse().concat(SENTENCES);
+  const sentencePool = merged.filter((row) => allow.has(row.cefr) && unseen(row));
+  const emailPool = EMAILS.filter((row) => allow.has(row.cefr) && !seen.has(fingerprint(row.scenario)));
+  const discussionPool = DISCUSSIONS.filter(
+    (row) => allow.has(row.cefr) && !seen.has(fingerprint(row.prompt)),
+  );
   return {
-    sentences: pick(sentencePool.length >= 10 ? sentencePool : SENTENCES, 10).map((row) => ({
+    sentences: (sentencePool.length >= 10 ? sentencePool.slice(0, 10) : pick(merged, 10)).map((row) => ({
       ...row,
       id: makeId("sent"),
       taskType: "build_sentence" as const,

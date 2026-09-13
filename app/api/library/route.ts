@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
-import { failAuth, requireUser } from "@/lib/auth";
+import { failAuth, requireStudent } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { buildAttemptAnalysis } from "@/lib/library-analysis";
 import { describeScope, parseScope } from "@/lib/scope";
+
+function parseAnswer(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
 
 export async function GET() {
   try {
-    const user = await requireUser();
+    const user = await requireStudent();
     const forms = await prisma.testForm.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -13,7 +22,7 @@ export async function GET() {
         sessions: {
           where: { userId: user.id },
           orderBy: { createdAt: "desc" },
-          include: { scoreReport: true },
+          include: { scoreReport: true, responses: true },
         },
       },
     });
@@ -21,37 +30,52 @@ export async function GET() {
     const data = forms.map((form) => {
       const topics = JSON.parse(form.topicTags) as string[];
       const attempts = form.sessions
-        .filter((s) => s.status !== "discarded")
-        .map((s) => {
-          const bands = s.scoreReport ? (JSON.parse(s.scoreReport.bandsJson) as Record<string, number>) : null;
-          const concordance = s.scoreReport
-            ? (JSON.parse(s.scoreReport.concordanceJson) as { classic30?: Record<string, number> })
-            : null;
+        .filter((session) => session.status !== "discarded")
+        .map((session) => {
+          const answers: Record<string, unknown> = {};
+          for (const row of session.responses) answers[row.itemId] = parseAnswer(row.valueJson);
+          let analysis = null;
+          if (session.scoreReport) {
+            try {
+              analysis = buildAttemptAnalysis({
+                formJson: form.payloadJson,
+                scopeJson: session.scopeJson,
+                answers,
+                readingRoute: session.readingRoute,
+                listeningRoute: session.listeningRoute,
+                timingJson: session.timingJson,
+                score: session.scoreReport,
+              });
+            } catch {
+              analysis = null;
+            }
+          }
           return {
-            id: s.id,
-            mode: s.mode,
-            scope: parseScope(s.scopeJson),
-            scopeLabel: describeScope(parseScope(s.scopeJson)),
-            status: s.status,
-            createdAt: s.createdAt.toISOString(),
-            completedAt: s.completedAt?.toISOString() ?? null,
-            bands,
-            classic30: concordance?.classic30 || null,
-            currentPointer: s.currentPointer,
+            id: session.id,
+            mode: session.mode,
+            scope: parseScope(session.scopeJson),
+            scopeLabel: describeScope(parseScope(session.scopeJson)),
+            status: session.status,
+            createdAt: session.createdAt.toISOString(),
+            completedAt: session.completedAt?.toISOString() ?? null,
+            currentPointer: session.currentPointer,
+            bands: analysis?.bands || null,
+            classic30: analysis?.classic30 || null,
+            analysis,
           };
         });
-      const completedBands = attempts.map((a) => a.bands).filter(Boolean) as Array<Record<string, number>>;
+      const completedBands = attempts.map((attempt) => attempt.bands).filter(Boolean) as Array<Record<string, number>>;
       const latest = completedBands[0]?.overall;
-      const best = completedBands.reduce<number | undefined>((acc, b) => {
-        if (b.overall == null) return acc;
-        return acc == null ? b.overall : Math.max(acc, b.overall);
+      const best = completedBands.reduce<number | undefined>((acc, bands) => {
+        if (bands.overall == null) return acc;
+        return acc == null ? bands.overall : Math.max(acc, bands.overall);
       }, undefined);
-    return {
-      id: form.id,
-      createdAt: form.createdAt.toISOString(),
-      topics,
-      difficulty: form.difficulty || "standard",
-      attemptCount: attempts.length,
+      return {
+        id: form.id,
+        createdAt: form.createdAt.toISOString(),
+        topics,
+        difficulty: form.difficulty || "standard",
+        attemptCount: attempts.length,
         latestOverall: latest ?? null,
         bestOverall: best ?? null,
         attempts,

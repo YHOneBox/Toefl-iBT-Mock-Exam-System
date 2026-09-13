@@ -1,5 +1,9 @@
+import { redirect } from "next/navigation";
 import { HomeLibrary } from "@/components/library/home-library";
+import { getCurrentUser, isAdminUser } from "@/lib/auth";
 
-export default function Page() {
+export default async function Page() {
+  const user = await getCurrentUser();
+  if (isAdminUser(user)) redirect("/users");
   return <HomeLibrary />;
 }

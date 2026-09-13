@@ -53,7 +53,7 @@ export function SentenceBuilder({
               type="button"
               disabled={review}
               onClick={() => onChange(value.filter((_, idx) => idx !== i))}
-              className="rounded bg-[#e8f1fb] px-3 py-2 text-sm"
+              className="max-w-full rounded bg-[#e8f1fb] px-3 py-2 text-sm whitespace-normal break-words"
             >
               {token}
             </button>
@@ -74,7 +74,7 @@ export function SentenceBuilder({
                 type="button"
                 disabled={review}
                 onClick={() => onChange([...value, token])}
-                className="rounded border border-[#c5d0da] bg-white px-3 py-2 text-sm"
+                className="max-w-full rounded border border-[#c5d0da] bg-white px-3 py-2 text-sm whitespace-normal break-words"
               >
                 {token}
               </button>
@@ -128,7 +128,7 @@ export function EmailTaskView({
         spellCheck={false}
         autoCorrect="off"
         onChange={(e) => onChange(e.target.value)}
-        className="h-64 w-full resize-none border border-[#c5d0da] p-3 outline-none"
+        className="box-border h-64 min-h-64 w-full min-w-0 resize-none border border-[#c5d0da] p-3 text-base leading-7 outline-none"
       />
       <div className="mt-2 text-sm text-[#5b6775]">{words} words · Goal: {task.goal}</div>
       {review && (
@@ -162,8 +162,8 @@ export function DiscussionTaskView({
   const formatIssues = feedback?.formatIssues ?? (review ? analyzeDiscussionFormat(value, task.prompt) : []);
   const sample = feedback?.sampleAnswer || sampleDiscussionAnswer(task);
   return (
-    <div className="mx-auto grid max-w-5xl gap-5 md:grid-cols-2">
-      <div className="panel p-5">
+    <div className="split-panes mx-auto max-w-5xl">
+      <div className="split-pane panel p-5">
         <h2 className="mb-2 text-lg font-semibold">{task.course}</h2>
         <p className="mb-3 text-sm font-semibold">{task.professor.name}</p>
         <p className="mb-4 text-sm leading-6">{task.professor.text}</p>
@@ -174,7 +174,7 @@ export function DiscussionTaskView({
           </div>
         ))}
       </div>
-      <div className="panel p-5">
+      <div className="split-pane panel p-5">
         <p className="mb-3 text-sm">{task.prompt}</p>
         <textarea
           value={value}
@@ -182,7 +182,7 @@ export function DiscussionTaskView({
           spellCheck={false}
           autoCorrect="off"
           onChange={(e) => onChange(e.target.value)}
-          className="h-72 w-full resize-none border border-[#c5d0da] p-3 outline-none"
+          className="box-border h-72 min-h-56 w-full min-w-0 resize-none border border-[#c5d0da] p-3 text-base leading-7 outline-none"
         />
         <div className="mt-2 text-sm text-[#5b6775]">{words} words</div>
         {review && (

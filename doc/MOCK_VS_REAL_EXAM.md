@@ -24,8 +24,8 @@ This is a local practice system. Bands are estimates.
 | --- | --- | --- |
 | Exam shape (order, tasks, counts, clocks) | **High (~85%)** | Standard full test is 50 / 47 / 12 / 11 with official-style splits. |
 | Live sitting (on-screen rules) | **High (~80%)** | Header, Hide Time, notes, volume, play-once, questions after audio, auto-record, confirm submit. Not an ETS client. |
-| Item quality and variety | **Medium (~55–65%)** | Original campus/academic items; small bank can repeat. |
-| Audio (accents) | **Medium (~50–65%)** | US / UK / Australia × male / female on new forms. TTS, not studio. |
+| Item quality and variety | **Medium–high (~65–75%)** | Original campus/academic items; new tests generate and save more; Module 1/2 CTW texts are unique. |
+| Audio (accents) | **Medium (~55–70%)** | US / UK / Australia × male / female. Line-level TTS; academic talks play slower. Still not studio. |
 | Scoring | **Low–medium (~35–45%)** | 1–6 display only. Not official IRT or human raters. |
 | Test-day security | **Out of scope** | No ID check. Local sign-in only. |
 
@@ -43,7 +43,7 @@ These are in the exam path (not the library).
 | Untimed directions; clock starts when you continue | Same |
 | Header: section, question n of N, clock | Same |
 | Hide Time / Show Time | Same |
-| Help, Volume, Notes | Same (volume only in the exam; accent pickers stay on review/settings) |
+| Help, Volume, Notes | Same (volume only in the exam, plus a **Test volume** beep/voice; accent pickers stay on review/settings) |
 | Reading: back inside a module; review list; submit locks the module | Same, with confirm before submit |
 | Listening: play once; stem/choices after audio; no back | Same; Next stays off until the audio finishes |
 | Speaking: hear once, then record once | Same; recording starts after the prompt; Next stays off until recorded |
@@ -52,7 +52,7 @@ These are in the exam path (not the library).
 | Desktop layout | Same |
 | ID / photo / lockdown | **Not implemented** (by design) |
 
-Practice tools stay **outside** the sitting: main page library, sectioned review, retake/redo, compare, difficulty picker, admin user accounts.
+Practice tools stay **outside** the sitting: main page library, sectioned review, retake/redo, compare, difficulty picker. The admin account only manages users.
 
 ---
 
@@ -130,28 +130,28 @@ ETS uses IRT and trained / official speech rating. We use percent correct, a hom
 
 Not an ability estimate. Items are not IRT-weighted.
 
-**Improve:** CEFR-weighted Module 1; no reused passages across M1 and M2.
+**Improve:** CEFR-weighted Module 1.
 
-### C. Small original bank
+### C. Growing original bank
 
-| Bank | Size | Per full form |
+Handmade seed bank is still small. On **Start new test**, if a Gemini/OpenAI key is set, the system retrieves subjects and campus contexts from `content/constraints/subjects-vocab.md`, generates extra CTW / daily / academic / listen-choose / talks / conversations / sentences / speaking seeds, rejects items that fail word counts, gap counts, or paraphrase checks, and appends accepted items to `data/item-bank.json`. Later papers prefer those saved items **and skip fingerprints this student already sat**. Complete the Words texts are unique across Module 1 and both Module 2 variants. Listening Module 2 avoids Module 1 titles and scripts. Module 2 lower and upper may share leftovers on purpose. Full pipeline: [QUESTION_GENERATION.md](QUESTION_GENERATION.md).
+
+| Bank | Starting size | Per full form |
 | --- | ---: | ---: |
-| CTW passages | 6 | 3 |
-| Daily-life texts | few | 6 |
-| Academic passages | few | 1 (M1 only) |
-| Listen-and-choose | ~21 | 16+5+5 |
-| Conversations / announcements / talks | 4 / 3 / 3 | 6 / 3 / 2 |
-| Build a Sentence | 12 | 10 |
-| Emails / discussions | 3 / 2 | 1 / 1 |
-| Repeat / interview sets | 2 / 2 | 1 / 1 |
+| CTW passages | 6 + grown | 4 unique |
+| Daily-life texts | 8 + grown | 8 (M2 variants may share leftovers) |
+| Academic passages | few + grown | 1 (M1 only) |
+| Listen-and-choose | ~27 + grown | 16+5+5 |
+| Conversations / announcements / talks | 8 / 4 / 3 + grown | 8 / 4 / 3 |
+| Build a Sentence | 12 + grown | 10 |
+| Emails / discussions | 3 / 2, LLM rewrite | 1 / 1 |
+| Repeat / interview sets | 2 / 2 + grown | 1 / 1 |
 
-**Improve:** grow each pool 3–5×; generate more original items from `subjects-vocab.md`.
+Official Guide wording is still not used.
 
 ### D. Audio is TTS
 
-Browser speech or ElevenLabs / OpenAI. Not studio. Dialogue is line-by-line.
-
-**Improve:** one file per speaker line at generation; slower talks than conversations.
+Browser speech or ElevenLabs / OpenAI. Not studio. Conversations, announcements, and talks now synthesize **one file per script line**. Academic talks play slower than campus dialogue.
 
 ### E. Speaking scores do not hear delivery
 
@@ -159,15 +159,13 @@ Repeats = word-error rate on a transcript. Interview = LLM on text or word-count
 
 **Improve:** required transcription; fluency features; relevance check on interview.
 
-### F. Some Reading types are MCQ labels
+### F. Academic insert-text and select-the-sentence
 
-Insert-text is “after which sentence?” not squares in the passage. No select-the-sentence highlighter.
+Academic passages use black squares in the text for insert-text, and clickable sentences for select-the-sentence, including review highlighting.
 
-**Improve:** real insert-text and click-a-sentence UI.
+### G. Complete the Words is closer to spec
 
-### G. Complete the Words is slightly loose
-
-Spec 70–100 words; we allow 55–130 and a fallback if 10 gaps are short.
+New generated passages must be 70–100 words with 10 gaps. Assembled forms allow 68–110 so older seed texts still validate.
 
 ### H. Reading Module 2 has no academic passage
 
@@ -196,7 +194,7 @@ Write more original items. Use official ETS practice separately if you buy it.
 | ~50 items, ~30 min | Yes (35+15; 20+9) |
 | CTW / daily / academic | Yes; academic M1 only |
 | Back + review + lock | Yes |
-| Insert-text UI | MCQ only |
+| Insert-text / select-sentence UI | Yes (squares and click-a-sentence) |
 | Official score | No |
 
 ### Listening
@@ -230,11 +228,10 @@ Write more original items. Use official ETS practice separately if you buy it.
 
 ## What to improve next (sitting already in place)
 
-1. Larger original bank (no M1/M2 repeats).
-2. Insert-text / select-sentence in the passage.
-3. Line-level TTS files; slower academic talks.
-4. Required Whisper (or equivalent) before a speaking band.
-5. CEFR-weighted Module 1 routing.
+1. Keep generating so the saved bank is several times larger than the handmade seed.
+2. Required Whisper (or equivalent) before a speaking band.
+3. CEFR-weighted Module 1 routing.
+4. Studio or multi-voice dialogue files if you want audio closer than TTS.
 
 ---
 

@@ -1,9 +1,13 @@
 import { makeId } from "../ids";
 import { ACCENT_GENDER_PAIRS } from "../accents";
+import { splitSentences } from "../passage";
 import type { Accent, ListenChooseItem, ModuleTag, SpokenSet } from "../types";
+import type { DifficultyBand } from "./difficulty";
+import { fingerprint, seedKey } from "./grown-bank";
+import type { ChooseSeed, SpokenSeed } from "./seeds";
 import { audio, joinScript, mcq, pick, pickOne } from "./util";
 
-const CHOOSE: Array<Omit<ListenChooseItem, "id" | "module" | "taskType" | "audio"> & { script: string; accent?: Accent }> = [
+const CHOOSE: ChooseSeed[] = [
   {
     cefr: "A2",
     skill: "social response",
@@ -277,12 +281,130 @@ const CHOOSE: Array<Omit<ListenChooseItem, "id" | "module" | "taskType" | "audio
     answerKey: 0,
     rationale: "A nuanced plan treats both options as possible until news arrives.",
   },
+  {
+    cefr: "A2",
+    skill: "social response",
+    script: "Is the wellness center still taking walk-ins this afternoon?",
+    options: [
+      "Yes, until four, but you should sign in at the front desk first.",
+      "The wellness center only sells textbooks.",
+      "Walk-ins are never allowed on campus.",
+      "You already missed graduation.",
+    ],
+    answerKey: 0,
+    rationale: "The speaker wants current walk-in information.",
+  },
+  {
+    cefr: "B1",
+    skill: "social response",
+    script: "I left my student ID in the lab. Can you tell the staff I will come back after lunch?",
+    options: [
+      "I will let them know, but they may still hold it at the office.",
+      "Student IDs cannot be used on campus.",
+      "The lab is closed forever.",
+      "You should buy a new building.",
+    ],
+    answerKey: 0,
+    rationale: "Passing on a message and a practical next step fits.",
+  },
+  {
+    cefr: "B2",
+    skill: "social response",
+    script: "If office hours are full, is it better to email the professor or join the wait list on the door?",
+    options: [
+      "Put your name on the wait list, then send a short email so she has the question in writing.",
+      "Office hours are only for staff.",
+      "You should skip the assignment.",
+      "The door wait list is a decoration.",
+    ],
+    answerKey: 0,
+    rationale: "A campus-appropriate plan uses both the list and a brief email.",
+  },
+  {
+    cefr: "A2",
+    skill: "social response",
+    script: "Does the rec center rent lockers by the day?",
+    options: [
+      "Yes, you can pay at the front desk with your student card.",
+      "Lockers are only for professors.",
+      "The rec center does not have a front desk.",
+      "You need a car to enter.",
+    ],
+    answerKey: 0,
+    rationale: "The speaker asks how daily lockers work.",
+  },
+  {
+    cefr: "B1",
+    skill: "social response",
+    script: "The printer just jammed and my paper is due in twenty minutes. What should I do first?",
+    options: [
+      "Send the file to the tech bar printer and ask them to release the job.",
+      "Delete the assignment so it cannot be late.",
+      "The printers never jam on campus.",
+      "You should wait until next term.",
+    ],
+    answerKey: 0,
+    rationale: "A practical next printer is the right campus move.",
+  },
+  {
+    cefr: "C1",
+    skill: "social response",
+    script: "Should we ask the ethics board for a delay, or submit the incomplete survey and note the missing cases?",
+    options: [
+      "Ask for a short delay and explain the missing cases so the record stays accurate.",
+      "Ethics boards never read student email.",
+      "Incomplete surveys are always accepted without comment.",
+      "You should hide the missing cases.",
+    ],
+    answerKey: 0,
+    rationale: "A careful plan protects the record and asks for time.",
+  },
 ];
 
-function chooseItems(n: number, module: ModuleTag, _accents: Accent[], cefrList?: string[]): ListenChooseItem[] {
-  const pool = cefrList?.length ? CHOOSE.filter((row) => cefrList.includes(row.cefr)) : CHOOSE;
-  const source = pool.length >= n ? pool : CHOOSE;
-  return pick(source, n).map((row, i) => ({
+function pickUniqueThenFill<T>(
+  pool: T[],
+  n: number,
+  used: Set<string>,
+  key: (item: T) => string,
+  seen: Set<string> = new Set(),
+  seenKey: (item: T) => string = key,
+): T[] {
+  const unused = pool.filter((item) => !used.has(key(item)));
+  const unusedUnseen = unused.filter((item) => !seen.has(seenKey(item)));
+  const unusedSeen = unused.filter((item) => seen.has(seenKey(item)));
+  const picked: T[] = [];
+  const pickedKeys = new Set<string>();
+  for (const item of [...unusedUnseen, ...unusedSeen]) {
+    if (picked.length >= n) break;
+    const itemKey = key(item);
+    if (!itemKey || pickedKeys.has(itemKey)) continue;
+    picked.push(item);
+    pickedKeys.add(itemKey);
+    used.add(itemKey);
+  }
+  if (picked.length >= n) return picked;
+  const rest = pick(
+    pool.filter((item) => !pickedKeys.has(key(item))),
+    n - picked.length,
+  );
+  for (const item of rest) used.add(key(item));
+  return [...picked, ...rest];
+}
+
+function chooseItems(
+  n: number,
+  module: ModuleTag,
+  extras: ChooseSeed[] = [],
+  usedScripts: Set<string> = new Set(),
+  cefrList?: string[],
+  seen: Set<string> = new Set(),
+): ListenChooseItem[] {
+  const merged = [...extras].reverse().concat(CHOOSE);
+  const leveled = cefrList?.length ? merged.filter((row) => cefrList.includes(row.cefr)) : merged;
+  const source = leveled.length
+    ? [...leveled, ...merged.filter((row) => !leveled.includes(row))]
+    : merged;
+  return pickUniqueThenFill(source, n, usedScripts, (row) => fingerprint(row.script), seen).map((row, i) => ({
     id: makeId("lcr"),
     taskType: "listen_choose_response" as const,
     module,
@@ -298,8 +420,6 @@ function chooseItems(n: number, module: ModuleTag, _accents: Accent[], cefrList?
     rationale: row.rationale,
   }));
 }
-
-type SpokenSeed = Omit<SpokenSet, "id" | "module" | "audio">;
 
 const CONVERSATIONS: SpokenSeed[] = [
   {
@@ -383,6 +503,86 @@ const CONVERSATIONS: SpokenSeed[] = [
       mcq("What will the woman need at the table?", ["Lab goggles", "The sign-up sheet", "A quiz booklet", "Bus tickets"], 1, "She asks him to bring the sign-up sheet.", "factual", "B1"),
     ],
   },
+  {
+    taskType: "listen_conversation",
+    cefr: "B1",
+    topic: "Campus life",
+    title: "Writing center booking",
+    speakers: [
+      { id: "a", label: "Woman", gender: "female", accent: "au" },
+      { id: "b", label: "Man", gender: "male", accent: "uk" },
+    ],
+    script: [
+      { speakerId: "a", text: "The writing center site shows no slots before Friday. My draft is due Thursday night." },
+      { speakerId: "b", text: "They keep two walk-in hours on Wednesday morning. You have to arrive when the door opens." },
+      { speakerId: "a", text: "I have chemistry then. Could I send the draft and ask for written comments?" },
+      { speakerId: "b", text: "Yes, but only if you upload it by noon today. They do not comment on late files." },
+    ],
+    questions: [
+      mcq("What is the woman's problem?", ["The writing center has no listed slots before her deadline", "She lost her chemistry textbook", "The center closed for the year", "She already uploaded the draft"], 0, "The booking site shows no times before Friday.", "main idea", "B1"),
+      mcq("What must she do for written comments?", ["Arrive Friday night", "Upload the draft by noon today", "Skip chemistry forever", "Call the dean"], 1, "Written comments require an upload by noon.", "factual", "B1"),
+    ],
+  },
+  {
+    taskType: "listen_conversation",
+    cefr: "A2",
+    topic: "Campus life",
+    title: "Lost umbrella",
+    speakers: [
+      { id: "a", label: "Man", gender: "male", accent: "us" },
+      { id: "b", label: "Woman", gender: "female", accent: "uk" },
+    ],
+    script: [
+      { speakerId: "a", text: "I left a black umbrella in lecture hall B. Did anyone turn it in?" },
+      { speakerId: "b", text: "The lost-and-found box is at the info desk, not in the hall." },
+      { speakerId: "a", text: "Is the desk open after six?" },
+      { speakerId: "b", text: "Until seven on weekdays. Bring your ID if you want to claim something." },
+    ],
+    questions: [
+      mcq("Where should the man look?", ["Lecture hall B only", "The info desk lost-and-found", "The dining hall kitchen", "His dorm roof"], 1, "Lost items go to the info desk box.", "factual", "A2"),
+      mcq("How late is the desk open on weekdays?", ["Until seven", "Until noon", "All night", "It is closed"], 0, "She says until seven on weekdays.", "factual", "A2"),
+    ],
+  },
+  {
+    taskType: "listen_conversation",
+    cefr: "B2",
+    topic: "Campus life",
+    title: "Lab safety swap",
+    speakers: [
+      { id: "a", label: "Woman", gender: "female", accent: "us" },
+      { id: "b", label: "Man", gender: "male", accent: "au" },
+    ],
+    script: [
+      { speakerId: "a", text: "I cannot make Thursday's lab safety session. Can I switch to the Monday makeup?" },
+      { speakerId: "b", text: "Monday is already full. They opened a short session Friday at eight." },
+      { speakerId: "a", text: "That is early, but I can do it if I still get the badge." },
+      { speakerId: "b", text: "You will. Just update the form tonight so your name moves off Thursday." },
+    ],
+    questions: [
+      mcq("Why is the woman asking to switch?", ["She cannot attend Thursday", "She already has the badge", "Monday is her only free day", "The lab closed"], 0, "She cannot make the Thursday session.", "factual", "B2"),
+      mcq("What should she do tonight?", ["Cancel the badge", "Update the form", "Skip Friday", "Email every student"], 1, "He tells her to update the form so her name moves.", "factual", "B2"),
+    ],
+  },
+  {
+    taskType: "listen_conversation",
+    cefr: "B1",
+    topic: "Campus life",
+    title: "Meal plan guest",
+    speakers: [
+      { id: "a", label: "Man", gender: "male", accent: "uk" },
+      { id: "b", label: "Woman", gender: "female", accent: "us" },
+    ],
+    script: [
+      { speakerId: "a", text: "My cousin is visiting Saturday. Can I use a guest swipe at the dining hall?" },
+      { speakerId: "b", text: "Guest swipes work after eleven, but only two per week on your plan." },
+      { speakerId: "a", text: "I already used one on Wednesday. So I still have one left." },
+      { speakerId: "b", text: "Yes. Tell the cashier it is a guest meal before they scan your card." },
+    ],
+    questions: [
+      mcq("What does the man want to do?", ["Cook in the dorm", "Use a guest swipe for his cousin", "Cancel his meal plan", "Work as a cashier"], 1, "He asks about a guest swipe for Saturday.", "main idea", "B1"),
+      mcq("What limit does the woman mention?", ["Two guest swipes per week", "No guests on Saturday", "Guest swipes only at night", "Unlimited swipes"], 0, "The plan allows two guest swipes per week.", "factual", "B1"),
+    ],
+  },
 ];
 
 const ANNOUNCEMENTS: SpokenSeed[] = [
@@ -435,6 +635,23 @@ const ANNOUNCEMENTS: SpokenSeed[] = [
     questions: [
       mcq("How should digital work be submitted?", ["By campus email", "Through the arts portal", "On a USB at the rec center", "On social media"], 1, "Digital files go through the arts portal, not email.", "factual", "B2"),
       mcq("What happens after the deadline?", ["Entries are returned immediately", "Work is shown through midterms", "The gallery closes", "Only winners may attend Saturday"], 1, "All entries stay on display through midterms.", "factual", "B2"),
+    ],
+  },
+  {
+    taskType: "listen_announcement",
+    cefr: "B1",
+    topic: "Campus life",
+    title: "Health clinic hours",
+    speakers: [{ id: "n", label: "Announcer", gender: "male", accent: "au" }],
+    script: [
+      {
+        speakerId: "n",
+        text: "The campus clinic will open extra evening hours this week for flu shots. Appointments are from five to eight on Tuesday and Thursday. Bring your student card and any allergy list. Walk-ins are taken only if a booked student cancels. A short form is required before the shot.",
+      },
+    ],
+    questions: [
+      mcq("Why are evening hours added?", ["For flu shots", "For a concert", "For final exams", "For housing keys"], 0, "Extra hours are for flu shots.", "factual", "B1"),
+      mcq("When are walk-ins taken?", ["Any time", "Only if a booked student cancels", "Never this week", "Only on Saturday"], 1, "Walk-ins fill canceled appointments only.", "factual", "B1"),
     ],
   },
 ];
@@ -499,53 +716,111 @@ const TALKS: SpokenSeed[] = [
   },
 ];
 
+function expandTalkScript(seed: SpokenSeed): SpokenSeed {
+  if (seed.taskType !== "listen_academic_talk" || seed.script.length >= 4) return seed;
+  const speakerId = seed.script[0]?.speakerId || seed.speakers[0]?.id || "p";
+  const sentences = splitSentences(seed.script.map((line) => line.text).join(" "));
+  if (sentences.length < 3) return seed;
+  return { ...seed, script: sentences.map((text) => ({ speakerId, text })) };
+}
+
 function toSpoken(seed: SpokenSeed, module: ModuleTag, salt = 0): SpokenSet {
+  const expanded = expandTalkScript(seed);
   const maleAccents: Accent[] = ["us", "uk", "au"];
   const femaleAccents: Accent[] = ["au", "us", "uk"];
-  const speakers = seed.speakers.map((s, i) => ({
+  const speakers = expanded.speakers.map((s, i) => ({
     id: s.id,
     label: s.label,
     gender: s.gender,
     accent: s.gender === "male" ? maleAccents[(salt + i) % 3] : femaleAccents[(salt + i) % 3],
   }));
+  const talkRate = expanded.taskType === "listen_academic_talk" ? 0.86 : undefined;
   return {
-    ...seed,
+    ...expanded,
     id: makeId("spk"),
     module,
     speakers,
-    questions: seed.questions.map((q) => ({ ...q, id: makeId("q") })),
-    audio: audio(joinScript(seed.script, speakers), speakers[0]?.accent || "us", speakers[0]?.gender || "female"),
+    questions: expanded.questions.map((q) => ({ ...q, id: makeId("q") })),
+    audio: audio(
+      joinScript(expanded.script, speakers),
+      speakers[0]?.accent || "us",
+      speakers[0]?.gender || "female",
+      talkRate,
+    ),
   };
 }
 
 export function listeningBundleFor(
   module: ModuleTag,
   spec: { choose: number; conversations: number; announcements: number; talks: number },
-  opts: boolean | { hard?: boolean; band?: "easier" | "standard" | "harder" } = false,
+  opts:
+    | boolean
+    | {
+        hard?: boolean;
+        band?: DifficultyBand;
+        extras?: {
+          choose?: ChooseSeed[];
+          conversations?: SpokenSeed[];
+          announcements?: SpokenSeed[];
+          talks?: SpokenSeed[];
+        };
+        used?: { scripts: Set<string>; titles: Set<string> };
+        seen?: Set<string>;
+      } = false,
 ) {
   const hard = typeof opts === "boolean" ? opts : Boolean(opts.hard || opts.band === "harder");
-  const band = typeof opts === "boolean" ? (opts ? "harder" : "standard") : opts.band || (hard ? "harder" : "standard");
-  const accents: Accent[] = ["us", "uk", "au"];
-  const convPool =
+  const band =
+    typeof opts === "boolean" ? (opts ? "harder" : "standard") : opts.band || (hard ? "harder" : "standard");
+  const extras = typeof opts === "boolean" ? {} : opts.extras || {};
+  const used = typeof opts === "boolean" ? { scripts: new Set<string>(), titles: new Set<string>() } : opts.used || {
+    scripts: new Set<string>(),
+    titles: new Set<string>(),
+  };
+  const seen = typeof opts === "boolean" ? new Set<string>() : opts.seen || new Set<string>();
+  const convAll = [...(extras.conversations || [])].reverse().concat(CONVERSATIONS);
+  const talkAll = [...(extras.talks || [])].reverse().concat(TALKS);
+  const annAll = [...(extras.announcements || [])].reverse().concat(ANNOUNCEMENTS);
+  const convPreferred =
     band === "easier"
-      ? CONVERSATIONS.filter((c) => c.cefr === "A2" || c.cefr === "B1")
+      ? convAll.filter((c) => c.cefr === "A2" || c.cefr === "B1")
       : hard
-        ? CONVERSATIONS.filter((c) => c.cefr !== "A2")
-        : CONVERSATIONS;
-  const talkPool =
+        ? convAll.filter((c) => c.cefr !== "A2")
+        : convAll;
+  const talkPreferred =
     band === "easier"
-      ? TALKS.filter((t) => t.cefr !== "C1")
+      ? talkAll.filter((t) => t.cefr !== "C1")
       : hard
-        ? TALKS.filter((t) => t.cefr !== "B1")
-        : TALKS;
+        ? talkAll.filter((t) => t.cefr !== "B1")
+        : talkAll;
+  const convPool = [...convPreferred, ...convAll.filter((item) => !convPreferred.includes(item))];
+  const talkPool = [...talkPreferred, ...talkAll.filter((item) => !talkPreferred.includes(item))];
   const chooseCefr = band === "easier" ? ["A2", "B1"] : band === "harder" ? ["B1", "B2", "C1"] : undefined;
   return {
-    choose: chooseItems(spec.choose, module, accents, chooseCefr),
-    conversations: pick(convPool.length ? convPool : CONVERSATIONS, spec.conversations).map((s, i) =>
-      toSpoken(s, module, i),
-    ),
-    announcements: pick(ANNOUNCEMENTS, spec.announcements).map((s, i) => toSpoken(s, module, i + 1)),
-    talks: pick(talkPool.length ? talkPool : TALKS, spec.talks).map((s, i) => toSpoken(s, module, i + 2)),
+    choose: chooseItems(spec.choose, module, extras.choose || [], used.scripts, chooseCefr, seen),
+    conversations: pickUniqueThenFill(
+      convPool.length ? convPool : convAll,
+      spec.conversations,
+      used.titles,
+      (s) => s.title,
+      seen,
+      (s) => seedKey("conversations", s),
+    ).map((s, i) => toSpoken(s, module, i)),
+    announcements: pickUniqueThenFill(
+      annAll,
+      spec.announcements,
+      used.titles,
+      (s) => s.title,
+      seen,
+      (s) => seedKey("announcements", s),
+    ).map((s, i) => toSpoken(s, module, i + 1)),
+    talks: pickUniqueThenFill(
+      talkPool.length ? talkPool : talkAll,
+      spec.talks,
+      used.titles,
+      (s) => s.title,
+      seen,
+      (s) => seedKey("talks", s),
+    ).map((s, i) => toSpoken(s, module, i + 2)),
   };
 }
 

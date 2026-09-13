@@ -16,11 +16,23 @@ export async function attachFormAudio(formId: string, form: TestFormPayload): Pr
       );
     }
     for (const set of [...bundle.conversations, ...bundle.announcements, ...bundle.talks]) {
-      jobs.push(
-        fillAudio(formId, set.audio, next()).then((audio) => {
-          set.audio = audio;
-        }),
-      );
+      set.lineAudio = set.script.map((line) => {
+        const speaker = set.speakers.find((s) => s.id === line.speakerId) || set.speakers[0];
+        return {
+          script: line.text,
+          accent: speaker?.accent || set.audio.accent,
+          gender: speaker?.gender || set.audio.gender,
+          fallbackTts: true,
+          rate: set.audio.rate,
+        };
+      });
+      set.lineAudio.forEach((clip, index) => {
+        jobs.push(
+          fillAudio(formId, clip, next()).then((audio) => {
+            if (set.lineAudio) set.lineAudio[index] = audio;
+          }),
+        );
+      });
     }
   }
   for (const item of form.speaking.listenRepeat.items) {

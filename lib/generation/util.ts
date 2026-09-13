@@ -29,8 +29,13 @@ export function mcq(
   return { id: makeId("q"), skill, cefr, stem, options, answerKey, rationale };
 }
 
-export function audio(script: string, accent: Accent = "us", gender: "male" | "female" = "female"): AudioRef {
-  return { script, accent, gender, fallbackTts: true };
+export function audio(
+  script: string,
+  accent: Accent = "us",
+  gender: "male" | "female" = "female",
+  rate?: number,
+): AudioRef {
+  return { script, accent, gender, fallbackTts: true, ...(rate && rate !== 1 ? { rate } : {}) };
 }
 
 export function joinScript(lines: Array<{ speakerId: string; text: string }>, speakers: Array<{ id: string; label: string }>) {

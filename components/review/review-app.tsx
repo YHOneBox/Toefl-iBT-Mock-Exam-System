@@ -60,7 +60,7 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
     concordance?.classic30 || classic30Scores((session.scoreReport?.raw || {}) as RawScores);
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="review-page mx-auto max-w-5xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Score report</h1>

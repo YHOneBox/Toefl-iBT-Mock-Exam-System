@@ -57,6 +57,7 @@ export function PlayOnceAudio({
       const el = new Audio(src);
       ref.current = el;
       el.volume = prefs.volume;
+      el.playbackRate = audio.rate ?? 1;
       el.onended = finish;
       await el.play().catch(() => speak());
       return;
@@ -67,7 +68,7 @@ export function PlayOnceAudio({
   function speak() {
     const utter = new SpeechSynthesisUtterance(audio.script);
     utter.lang = langForAccent(audio.accent);
-    utter.rate = prefs.rate;
+    utter.rate = prefs.rate * (audio.rate ?? 1);
     utter.volume = prefs.volume;
     const voice = pickVoice(audio.gender, audio.accent);
     if (voice) utter.voice = voice;
@@ -123,26 +124,56 @@ export function DialoguePlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [set.id, autoPlay]);
 
+  function finishAll() {
+    setPlaying(false);
+    setPlayed(true);
+    setLineIndex(-1);
+    ended.current?.();
+  }
+
+  function lineGap(index: number) {
+    const line = set.script[index];
+    const next = set.script[index + 1];
+    const talkPause = set.taskType === "listen_academic_talk" ? 520 : 380;
+    return next && next.speakerId !== line?.speakerId ? 850 : talkPause;
+  }
+
+  function playLineFile(index: number) {
+    if (index >= set.script.length) {
+      finishAll();
+      return;
+    }
+    const clip = set.lineAudio?.[index];
+    if (!clip?.path || clip.fallbackTts) {
+      speakLine(index);
+      return;
+    }
+    const el = new Audio(`/api/media?path=${encodeURIComponent(`data/audio/${clip.path}`)}`);
+    el.volume = prefs.volume;
+    el.playbackRate = clip.rate ?? set.audio.rate ?? 1;
+    el.onended = () => {
+      window.setTimeout(() => playLineFile(index + 1), lineGap(index));
+    };
+    el.onerror = () => speakLine(index);
+    setLineIndex(index);
+    void el.play().catch(() => speakLine(index));
+  }
+
   function speakLine(index: number) {
     const line = set.script[index];
     if (!line) {
-      setPlaying(false);
-      setPlayed(true);
-      setLineIndex(-1);
-      ended.current?.();
+      finishAll();
       return;
     }
     const speaker = set.speakers.find((s) => s.id === line.speakerId);
     const utter = new SpeechSynthesisUtterance(line.text);
     utter.lang = langForAccent(speaker?.accent || set.audio.accent);
-    utter.rate = prefs.rate;
+    utter.rate = prefs.rate * (set.audio.rate ?? 1);
     utter.volume = prefs.volume;
     const voice = pickVoice(speaker?.gender || "female", speaker?.accent || set.audio.accent);
     if (voice) utter.voice = voice;
-    const next = set.script[index + 1];
-    const gap = next && next.speakerId !== line.speakerId ? 850 : 380;
     utter.onend = () => {
-      window.setTimeout(() => speakLine(index + 1), gap);
+      window.setTimeout(() => playLineFile(index + 1), lineGap(index));
     };
     setLineIndex(index);
     window.speechSynthesis.speak(utter);
@@ -152,7 +183,7 @@ export function DialoguePlayer({
     if (played && !allowReplay) return;
     setPlaying(true);
     window.speechSynthesis.cancel();
-    speakLine(0);
+    playLineFile(0);
   }
 
   return (

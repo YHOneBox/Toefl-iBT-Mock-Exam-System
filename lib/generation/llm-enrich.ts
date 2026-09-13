@@ -1,17 +1,22 @@
 import { generateJson } from "../llm";
 import type { ExamDifficulty, TestFormPayload } from "../types";
 
-export async function enrichWithLlm(form: TestFormPayload, difficulty: ExamDifficulty = "standard"): Promise<void> {
+export async function enrichWithLlm(
+  form: TestFormPayload,
+  difficulty: ExamDifficulty = "standard",
+  avoid: string[] = [],
+): Promise<void> {
   const level =
     difficulty === "easier"
       ? "A2-B1 campus English, shorter sentences, clear requests"
       : difficulty === "harder"
         ? "B2-C1 academic English, denser reasons, still introductory university level"
         : "real enhanced TOEFL iBT: B1-B2 campus and introductory academic English";
+  const avoidLine = avoid.length ? `Do not reuse these topics or scenarios: ${avoid.slice(0, 20).join("; ")}.` : "";
   const data = (await generateJson({
     system:
       "Create original TOEFL practice prompts only. Do not copy official ETS items. Return valid JSON.",
-    user: `Write one original Write an Email scenario and one Academic Discussion prompt for a mock enhanced TOEFL iBT. Difficulty: ${level}.
+    user: `Write one original Write an Email scenario and one Academic Discussion prompt for a mock enhanced TOEFL iBT. Difficulty: ${level}. ${avoidLine}
 JSON shape: {"email":{"scenario":"","audience":"","goal":"","sampleAnswer":""},"discussion":{"course":"","professor":{"name":"","text":""},"students":[{"name":"","text":""},{"name":"","text":""}],"prompt":""}}
 The email sampleAnswer must be a complete student email (90-130 words): greeting, 2 short body paragraphs that do the requested actions in first person, polite closing, and a name. Do not paste the test instructions or the goal line into the email.`,
     temperature: 0.8,

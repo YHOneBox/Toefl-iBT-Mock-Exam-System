@@ -2,6 +2,8 @@ import { makeId } from "../ids";
 import type { AcademicSet, DailyLifeSet, ModuleTag } from "../types";
 import { buildCompleteTheWords } from "./ctw";
 import { cefrAllowed, type DifficultyBand } from "./difficulty";
+import { seedKey } from "./grown-bank";
+import type { AcademicSeed, CtwSeed, DailySeed } from "./seeds";
 import { mcq } from "./util";
 
 const CTW_PASSAGES: Array<{ topic: string; text: string }> = [
@@ -188,6 +190,14 @@ const DAILY: Array<Omit<DailyLifeSet, "id" | "module" | "taskType">> = [
         "factual",
         "B1",
       ),
+      mcq(
+        "When are after-hours online tickets answered?",
+        ["Immediately on Friday night", "The next business morning", "Only on Monday", "After 7:00 p.m. the same day"],
+        1,
+        "After-hours tickets are answered the next business morning.",
+        "factual",
+        "B1",
+      ),
     ],
   },
   {
@@ -262,6 +272,66 @@ const DAILY: Array<Omit<DailyLifeSet, "id" | "module" | "taskType">> = [
         "The message says outlets are limited.",
         "factual",
         "B1",
+      ),
+    ],
+  },
+  {
+    cefr: "B2",
+    topic: "Campus life",
+    format: "email",
+    title: "Grade review window",
+    text:
+      "From: History 210 staff\nThe midterm grade review window is Tuesday and Wednesday, 2:00–4:00 p.m. in Room 118. Bring your exam booklet and a short written question. Reviews are ten minutes each. If those hours conflict with a lab, email the teaching assistant by Monday noon with two other times. Scores will not change after Friday.",
+    questions: [
+      mcq(
+        "What should students bring to a review?",
+        ["Only a laptop", "The exam booklet and a written question", "A parent", "Cash for a reprint"],
+        1,
+        "The email asks for the booklet and a short written question.",
+        "factual",
+        "B2",
+      ),
+      mcq(
+        "What should a student do if the posted hours clash with lab?",
+        ["Skip the review", "Email two other times by Monday noon", "Come after Friday", "Call the dean"],
+        1,
+        "They may email two other times by Monday noon.",
+        "factual",
+        "B2",
+      ),
+      mcq(
+        "When do scores stop changing?",
+        ["Monday noon", "After Friday", "During the ten-minute meeting", "Never"],
+        1,
+        "Scores will not change after Friday.",
+        "factual",
+        "B2",
+      ),
+    ],
+  },
+  {
+    cefr: "A2",
+    topic: "Campus life",
+    format: "notice",
+    title: "Bike rack move",
+    text:
+      "The south bike racks will be closed Friday for paving. Park at the library racks or the rec-center cages. Locks left on the old racks after 8:00 a.m. Friday will be cut and stored at Security for seven days. Bring your ID to collect a stored bike.",
+    questions: [
+      mcq(
+        "Where should bikes go on Friday?",
+        ["The south racks", "Library racks or rec-center cages", "Inside classrooms", "The dining hall"],
+        1,
+        "The notice names the library racks and rec-center cages.",
+        "factual",
+        "A2",
+      ),
+      mcq(
+        "What happens to locks left on the old racks?",
+        ["They stay until Monday", "They will be cut and stored at Security", "They are sold", "Nothing"],
+        1,
+        "Locks left after 8:00 a.m. Friday are cut and stored.",
+        "factual",
+        "A2",
       ),
     ],
   },
@@ -386,19 +456,19 @@ const ACADEMIC: Array<Omit<AcademicSet, "id" | "module" | "taskType">> = [
         "inference",
         "B2",
       ),
-      mcq(
-        "Look at the four squares where the sentence could be added: \"That privacy was part of the attraction.\" Where does it best fit after the sentence about looking through a lens?",
-        [
-          "After the sentence about the coin and lens",
-          "After the sentence about projected films",
-          "After the sentence about complex editing",
-          "After the final sentence",
-        ],
-        0,
-        "The added sentence comments on the private viewing described early in the passage.",
-        "insert text",
-        "B2",
-      ),
+      {
+        ...mcq(
+          "Look at the four squares in the passage. The following sentence can be added to the passage. Where would the sentence best fit?",
+          ["Square A", "Square B", "Square C", "Square D"],
+          0,
+          "The added sentence comments on the private viewing described after the coin-and-lens sentence.",
+          "insert text",
+          "B2",
+        ),
+        passageAction: "insert" as const,
+        insertSentence: "That privacy was part of the attraction.",
+        insertPositions: [1, 5, 6, 8],
+      },
     ],
   },
   {
@@ -460,39 +530,88 @@ const ACADEMIC: Array<Omit<AcademicSet, "id" | "module" | "taskType">> = [
         "rhetorical purpose",
         "C1",
       ),
-      mcq(
-        "Which sentence best simplifies this idea: \"They are not simply preferring comfort; their bodies are tuned to a particular combination of density, pressure, and viscosity.\"",
-        [
-          "Species choose habitats only because the water feels pleasant.",
-          "Bodies are adapted to a specific mix of physical conditions, not just comfort.",
-          "All marine animals can live in any temperature band.",
-          "Density is the only property that matters to deep-sea proteins.",
-        ],
-        1,
-        "The sentence says adaptation, not mere comfort, explains narrow ranges.",
-        "sentence simplification",
-        "C1",
-      ),
+      {
+        ...mcq(
+          "Click the sentence that explains why some species stay in narrow temperature bands.",
+          ["", "", "", ""],
+          5,
+          "That sentence says bodies are tuned to a mix of physical conditions, not mere comfort.",
+          "select sentence",
+          "C1",
+        ),
+        passageAction: "select" as const,
+      },
     ],
   },
 ];
 
-export function makeCtwSet(module: ModuleTag, cefr: "B1" | "B2" | "C1", exclude: string[] = []) {
-  const pool = CTW_PASSAGES.filter((p) => !exclude.includes(p.text));
-  const chosen = pool[Math.floor(Math.random() * pool.length)] || CTW_PASSAGES[0];
+function pickSeed<T>(preferred: T[], fallback: T[], lastResort: T[]): T {
+  const pool = preferred.length ? preferred : fallback.length ? fallback : lastResort;
+  return pool[Math.floor(Math.random() * pool.length)] || lastResort[0];
+}
+
+export function makeCtwSet(
+  module: ModuleTag,
+  cefr: "B1" | "B2" | "C1",
+  exclude: string[] = [],
+  extras: CtwSeed[] = [],
+  seen: Set<string> = new Set(),
+) {
+  const fresh = (items: CtwSeed[]) =>
+    items.filter((p) => !exclude.includes(p.text) && !seen.has(seedKey("ctw", p)));
+  const unusedExtras = fresh(extras);
+  const unusedAll = fresh([...extras, ...CTW_PASSAGES]);
+  const chosen =
+    unusedExtras.length > 0
+      ? unusedExtras[unusedExtras.length - 1]
+      : pickSeed(unusedAll, unusedAll, CTW_PASSAGES);
   return buildCompleteTheWords(chosen.text, chosen.topic, module, cefr);
 }
 
-export function makeDailySets(module: ModuleTag, counts: number[], band: DifficultyBand = "standard"): DailyLifeSet[] {
-  const used = new Set<string>();
+export function makeDailySets(
+  module: ModuleTag,
+  counts: number[],
+  band: DifficultyBand = "standard",
+  extras: DailySeed[] = [],
+  usedTitles: Set<string> = new Set(),
+  seen: Set<string> = new Set(),
+): DailyLifeSet[] {
   const allow = new Set(cefrAllowed(band));
+  const pool = [...extras, ...DAILY];
   return counts.map((need) => {
-    const byLevel = DAILY.filter((d) => !used.has(d.title) && d.questions.length >= need && allow.has(d.cefr));
-    const available = byLevel.length
-      ? byLevel
-      : DAILY.filter((d) => !used.has(d.title) && d.questions.length >= need);
-    const src = available[Math.floor(Math.random() * available.length)] || DAILY[0];
-    used.add(src.title);
+    const unusedFit = (items: DailySeed[], exact: boolean) =>
+      items.filter(
+        (d) =>
+          !usedTitles.has(d.title) &&
+          !seen.has(seedKey("daily", d)) &&
+          allow.has(d.cefr) &&
+          (exact ? d.questions.length === need : d.questions.length >= need),
+      );
+    const extraExact = unusedFit(extras, true);
+    const extraFit = unusedFit(extras, false);
+    const levelExact = unusedFit(pool, true);
+    const levelFit = unusedFit(pool, false);
+    const exactAnyCefr = pool.filter(
+      (d) => !usedTitles.has(d.title) && !seen.has(seedKey("daily", d)) && d.questions.length === need,
+    );
+    const unusedAny = pool.filter(
+      (d) => !usedTitles.has(d.title) && !seen.has(seedKey("daily", d)) && d.questions.length >= need,
+    );
+    const unusedInForm = pool.filter((d) => !usedTitles.has(d.title) && d.questions.length >= 2);
+    const newest = extraExact.length ? extraExact : extraFit;
+    const preferred = levelExact.length
+      ? levelExact
+      : exactAnyCefr.length
+        ? exactAnyCefr
+        : levelFit.length
+          ? levelFit
+          : unusedAny.length
+            ? unusedAny
+            : unusedInForm;
+    const src = newest.length
+      ? newest[newest.length - 1]
+      : pickSeed(preferred, unusedInForm, unusedInForm.length ? unusedInForm : DAILY);
+    usedTitles.add(src.title);
     return {
       ...src,
       id: makeId("daily"),
@@ -503,12 +622,27 @@ export function makeDailySets(module: ModuleTag, counts: number[], band: Difficu
   });
 }
 
-export function makeAcademicSet(module: ModuleTag, band: DifficultyBand | boolean = "standard"): AcademicSet {
+export function makeAcademicSet(
+  module: ModuleTag,
+  band: DifficultyBand | boolean = "standard",
+  extras: AcademicSeed[] = [],
+  usedTitles: Set<string> = new Set(),
+  seen: Set<string> = new Set(),
+): AcademicSet {
   const level = band === true ? "harder" : band === false ? "standard" : band;
   const allow = new Set(cefrAllowed(level));
-  const preferred = ACADEMIC.filter((a) => allow.has(a.cefr));
-  const pool = preferred.length ? preferred : ACADEMIC;
-  const src = pool[Math.floor(Math.random() * pool.length)];
+  const pool = [...extras, ...ACADEMIC];
+  const extraFit = extras.filter(
+    (a) => !usedTitles.has(a.title) && !seen.has(seedKey("academic", a)) && allow.has(a.cefr),
+  );
+  const levelFit = pool.filter(
+    (a) => !usedTitles.has(a.title) && !seen.has(seedKey("academic", a)) && allow.has(a.cefr),
+  );
+  const unused = pool.filter((a) => !usedTitles.has(a.title) && !seen.has(seedKey("academic", a)));
+  const src = extraFit.length
+    ? extraFit[extraFit.length - 1]
+    : pickSeed(levelFit.length ? levelFit : unused, unused, ACADEMIC);
+  usedTitles.add(src.title);
   return {
     ...src,
     id: makeId("acad"),

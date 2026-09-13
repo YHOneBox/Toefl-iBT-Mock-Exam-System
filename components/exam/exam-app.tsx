@@ -189,12 +189,12 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
   return (
     <div className="exam-chrome">
       <header className="exam-header">
-        <div>
+        <div className="exam-header-copy">
           <div className="text-xs uppercase tracking-wide text-slate-200">{sectionName(pointer)}</div>
-          <div className="font-semibold">{pointerTitle(pointer)}</div>
+          <div className="font-semibold leading-snug">{pointerTitle(pointer)}</div>
           <div className="text-xs text-slate-200">{progressLabel(session, pointer, viewingReviewItem ? reviewJump : index)}</div>
         </div>
-        <div className="relative flex items-center gap-4">
+        <div className="relative flex shrink-0 flex-wrap items-center gap-4">
           <button type="button" className="text-sm underline" onClick={() => setHelpOpen((v) => !v)}>
             Help
           </button>
@@ -213,19 +213,20 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
             </>
           )}
           {volumeOpen && (
-            <div className="panel absolute right-0 top-12 z-20 w-72 max-w-[90vw] p-3 text-[#1b2430]">
+            <div className="panel absolute right-0 top-full z-20 mt-1 w-80 max-w-[90vw] p-3 text-[#1b2430]">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#5b6775]">Volume</p>
-              <VolumeSlider />
+              <VolumeSlider showTest />
             </div>
           )}
           {helpOpen && (
-            <div className="panel absolute right-0 top-12 z-20 w-[28rem] max-w-[90vw] p-3 text-sm leading-6 text-[#1b2430]">
+            <div className="panel absolute right-0 top-full z-20 mt-1 w-[28rem] max-w-[90vw] p-3 text-sm leading-6 text-[#1b2430]">
               {helpText(pointer)}
             </div>
           )}
         </div>
       </header>
       <main className="exam-main">
+        <div className="exam-stage">
         <Stage
           session={session}
           pointer={pointer}
@@ -238,6 +239,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
           onCheckin={goNext}
           onGate={setReady}
         />
+        </div>
         {notesOpen && (
           <aside className="panel fixed right-4 top-20 z-10 w-80 p-3">
             <textarea
@@ -470,7 +472,7 @@ function Stage({
           Use headphones if you can. You may use the on-screen notes. Browser spelling tools are off. You cannot change answers after you finish the test.
         </p>
         <div className="mb-6">
-          <VolumeSlider />
+          <VolumeSlider showTest />
         </div>
         <PrimaryButton onClick={onCheckin}>Continue</PrimaryButton>
       </div>

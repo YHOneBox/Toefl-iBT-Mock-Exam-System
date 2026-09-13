@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { failAuth, requireUser } from "@/lib/auth";
+import { failAuth, requireStudent } from "@/lib/auth";
 import { createSession } from "@/lib/sessions";
 import type { ScopePart, SessionMode } from "@/lib/types";
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireStudent();
     const body = (await req.json()) as {
       formId?: string;
       mode?: SessionMode;

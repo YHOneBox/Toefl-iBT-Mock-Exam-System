@@ -17,9 +17,10 @@ function LoginForm() {
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.json())
-      .then((data: { user?: { username: string } | null; userCount?: number }) => {
+      .then((data: { user?: { username: string } | null; userCount?: number; isAdmin?: boolean }) => {
         setUserCount(data.userCount ?? 0);
-        if (data.user) router.replace(next);
+        if (data.isAdmin) router.replace("/users");
+        else if (data.user) router.replace(next);
       })
       .catch(() => setUserCount(0));
   }, [next, router]);
@@ -33,9 +34,9 @@ function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; user?: { isAdmin?: boolean } };
       if (!res.ok) throw new Error(data.error || "Failed");
-      router.replace(next);
+      router.replace(data.user?.isAdmin ? "/users" : next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {

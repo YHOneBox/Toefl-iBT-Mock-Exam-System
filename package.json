@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "dev:host": "next dev --turbopack -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start",
+    "host": "next start -H 0.0.0.0 -p 3000",
     "lint": "eslint",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",

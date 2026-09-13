@@ -152,7 +152,7 @@ export function VoiceControls({ compact = false }: { compact?: boolean }) {
           </div>
         </div>
       ))}
-      <VolumeSlider />
+      <VolumeSlider showTest />
       <label className="flex items-center gap-1">
         <span>Speed</span>
         <input
@@ -169,20 +169,70 @@ export function VoiceControls({ compact = false }: { compact?: boolean }) {
   );
 }
 
-export function VolumeSlider({ label = "Volume" }: { label?: string }) {
-  const { prefs, setPrefs } = useVoice();
+export function VolumeSlider({
+  label = "Volume",
+  showTest = false,
+}: {
+  label?: string;
+  showTest?: boolean;
+}) {
+  const { prefs, setPrefs, pickVoice } = useVoice();
+  const [testing, setTesting] = useState(false);
+
+  function playTest() {
+    setTesting(true);
+    window.speechSynthesis.cancel();
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 440;
+      gain.gain.value = 0.08 * prefs.volume;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+      osc.onended = () => void ctx.close();
+    } catch {
+      /* speech is enough */
+    }
+    const utter = new SpeechSynthesisUtterance(
+      "This is a volume check. Adjust the slider until this is comfortable.",
+    );
+    utter.lang = "en-US";
+    utter.rate = prefs.rate;
+    utter.volume = prefs.volume;
+    const voice = pickVoice("female", "us");
+    if (voice) utter.voice = voice;
+    utter.onend = () => setTesting(false);
+    utter.onerror = () => setTesting(false);
+    window.setTimeout(() => window.speechSynthesis.speak(utter), 220);
+  }
+
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <span>{label}</span>
-      <input
-        type="range"
-        min="0.2"
-        max="1"
-        step="0.05"
-        value={prefs.volume}
-        onChange={(e) => setPrefs({ volume: Number(e.target.value) })}
-      />
-    </label>
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm">
+        <span>{label}</span>
+        <input
+          type="range"
+          min="0.2"
+          max="1"
+          step="0.05"
+          value={prefs.volume}
+          onChange={(e) => setPrefs({ volume: Number(e.target.value) })}
+        />
+      </label>
+      {showTest && (
+        <button
+          type="button"
+          onClick={playTest}
+          className="rounded border border-[#c5d0da] bg-white px-3 py-1.5 text-sm"
+        >
+          {testing ? "Playing test…" : "Test volume"}
+        </button>
+      )}
+    </div>
   );
 }
 

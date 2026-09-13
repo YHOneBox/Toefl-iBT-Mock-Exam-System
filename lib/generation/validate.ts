@@ -44,7 +44,49 @@ export function validateForm(form: TestFormPayload): string[] {
     const gaps = set.tokens.filter((t) => t.isGap);
     if (gaps.length !== 10) errors.push(`CTW set ${set.id} has ${gaps.length} gaps`);
     const words = set.fullPassage.split(/\s+/).length;
-    if (words < 55 || words > 130) errors.push(`CTW set ${set.id} word count ${words}`);
+    if (words < 68 || words > 110) errors.push(`CTW set ${set.id} word count ${words}`);
+  }
+  const ctwTexts = [
+    ...form.reading.module1.completeTheWords,
+    ...form.reading.module2Lower.completeTheWords,
+    ...form.reading.module2Upper.completeTheWords,
+  ].map((set) => set.fullPassage.trim());
+  if (new Set(ctwTexts).size !== ctwTexts.length) errors.push("Complete the Words passages are reused across modules");
+
+  // Module 2 lower and upper may share leftovers on purpose: only one route is administered.
+  const m1Daily = titlesOf(form.reading.module1.dailyLife);
+  const m1Choose = form.listening.module1.choose.map((item) => item.audio.script.trim());
+  const m1Spoken = spokenTitles(form.listening.module1);
+  if (overlap(m1Daily, titlesOf(form.reading.module2Lower.dailyLife))) {
+    errors.push("Daily-life texts reused between Reading module 1 and module 2 lower");
+  }
+  if (overlap(m1Daily, titlesOf(form.reading.module2Upper.dailyLife))) {
+    errors.push("Daily-life texts reused between Reading module 1 and module 2 upper");
+  }
+  if (overlap(m1Choose, form.listening.module2Lower.choose.map((item) => item.audio.script.trim()))) {
+    errors.push("Listen and Choose scripts reused between Listening module 1 and module 2 lower");
+  }
+  if (overlap(m1Choose, form.listening.module2Upper.choose.map((item) => item.audio.script.trim()))) {
+    errors.push("Listen and Choose scripts reused between Listening module 1 and module 2 upper");
+  }
+  if (overlap(m1Spoken, spokenTitles(form.listening.module2Lower))) {
+    errors.push("Spoken listening sets reused between Listening module 1 and module 2 lower");
+  }
+  if (overlap(m1Spoken, spokenTitles(form.listening.module2Upper))) {
+    errors.push("Spoken listening sets reused between Listening module 1 and module 2 upper");
   }
   return errors;
+}
+
+function titlesOf(items: Array<{ title: string }>): string[] {
+  return items.map((item) => item.title.trim());
+}
+
+function spokenTitles(bundle: ListeningBundle): string[] {
+  return [...bundle.conversations, ...bundle.announcements, ...bundle.talks].map((set) => set.title.trim());
+}
+
+function overlap(a: string[], b: string[]): boolean {
+  const left = new Set(a.filter(Boolean));
+  return b.some((item) => item && left.has(item));
 }

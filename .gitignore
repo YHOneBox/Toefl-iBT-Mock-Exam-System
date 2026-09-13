@@ -4,6 +4,8 @@ out
 data/*.db
 data/*.db-journal
 data/app-settings.json
+data/item-bank.json
+data/seen-items.json
 data/audio/**
 data/recordings/**
 !data/audio/.gitkeep
@@ -11,4 +13,10 @@ data/recordings/**
 .env
 .env.local
 *.log
+
 HowToRunAfterUpdate.md
+
+tsconfig.tsbuildinfo
+toefl-local-data.zip
+doc/34652844-c956-4338-905f-03cf17d814fc.pdf
+

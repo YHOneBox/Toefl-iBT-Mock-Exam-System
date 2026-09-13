@@ -23,6 +23,7 @@ export async function synthesizeToFile(
   text: string,
   accent: Accent,
   gender: "male" | "female" = "female",
+  speed = 1,
 ): Promise<boolean> {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   if (process.env.ELEVENLABS_API_KEY) {
@@ -62,6 +63,7 @@ export async function synthesizeToFile(
           model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
           voice: OPENAI_VOICE[accent][gender],
           input: text,
+          speed: Math.max(0.7, Math.min(1.2, speed)),
         }),
       });
       if (res.ok) {
@@ -82,6 +84,6 @@ export async function fillAudio(
 ): Promise<AudioRef> {
   const rel = `${formId}/${filename}`;
   const abs = path.join(process.cwd(), "data", "audio", rel);
-  const ok = await synthesizeToFile(abs, audio.script, audio.accent, audio.gender);
+  const ok = await synthesizeToFile(abs, audio.script, audio.accent, audio.gender, audio.rate ?? 1);
   return { ...audio, path: ok ? rel : undefined, fallbackTts: !ok };
 }

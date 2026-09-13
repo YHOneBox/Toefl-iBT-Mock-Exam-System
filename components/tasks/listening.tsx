@@ -98,8 +98,8 @@ export function SpokenSetTask({
   }
 
   return (
-    <div className="grid gap-5 md:grid-cols-2">
-      <div className="panel p-5">
+    <div className="split-panes">
+      <div className="split-pane panel p-5">
         <h2 className="mb-2 text-lg font-semibold">{review ? set.title : set.taskType === "listen_conversation" ? "Conversation" : set.taskType === "listen_announcement" ? "Announcement" : "Academic talk"}</h2>
         <div className="mb-4 flex gap-3">
           {set.speakers.map((s) => (
@@ -125,7 +125,7 @@ export function SpokenSetTask({
           </pre>
         )}
       </div>
-      <div className="panel p-5">
+      <div className="split-pane panel p-5">
         {heard ? (
           <McqList questions={set.questions} values={values} onChange={onChange} review={review} />
         ) : (

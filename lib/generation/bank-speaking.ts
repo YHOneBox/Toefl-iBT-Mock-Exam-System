@@ -1,6 +1,8 @@
 import { ACCENT_GENDER_PAIRS } from "../accents";
 import { makeId } from "../ids";
 import type { SpeakingBundle } from "../types";
+import { seedKey } from "./grown-bank";
+import type { InterviewSeed, RepeatSeed } from "./seeds";
 import { audio, pickOne } from "./util";
 
 const REPEAT: Array<Omit<SpeakingBundle["listenRepeat"], "items"> & { sentences: string[] }> = [
@@ -57,9 +59,14 @@ const INTERVIEWS: Array<Omit<SpeakingBundle["interview"], "items"> & { questions
 
 const REPEAT_SECONDS = [8, 8, 10, 10, 10, 12, 12] as const;
 
-export function makeSpeakingBundle(): SpeakingBundle {
-  const repeat = pickOne(REPEAT);
-  const interview = pickOne(INTERVIEWS);
+export function makeSpeakingBundle(
+  extras?: { repeats?: RepeatSeed[]; interviews?: InterviewSeed[] },
+  seen: Set<string> = new Set(),
+): SpeakingBundle {
+  const repeats = [...(extras?.repeats || [])].reverse().concat(REPEAT);
+  const interviews = [...(extras?.interviews || [])].reverse().concat(INTERVIEWS);
+  const repeat = repeats.find((row) => !seen.has(seedKey("repeats", row))) || pickOne(REPEAT);
+  const interview = interviews.find((row) => !seen.has(seedKey("interviews", row))) || pickOne(INTERVIEWS);
   return {
     listenRepeat: {
       scenario: repeat.scenario,

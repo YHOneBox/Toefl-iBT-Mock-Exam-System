@@ -5,50 +5,25 @@ import { useRouter } from "next/navigation";
 import { DIFFICULTY_OPTIONS, difficultyLabel } from "@/lib/generation/difficulty";
 import { allScopeOptions, describeScope } from "@/lib/scope";
 import type { ExamDifficulty, ScopePart } from "@/lib/types";
-import { Band, GhostButton, PrimaryButton } from "../ui";
-
-type Attempt = {
-  id: string;
-  mode: string;
-  scope: ScopePart[];
-  scopeLabel: string;
-  status: string;
-  createdAt: string;
-  completedAt: string | null;
-  bands: Record<string, number> | null;
-  classic30: Record<string, number> | null;
-  currentPointer: string;
-};
-
-type FormRow = {
-  id: string;
-  createdAt: string;
-  topics: string[];
-  difficulty?: string;
-  attemptCount: number;
-  latestOverall: number | null;
-  bestOverall: number | null;
-  attempts: Attempt[];
-};
+import { GhostButton, PrimaryButton } from "../ui";
+import { AttemptAnalysisCard, LibraryOverview, type DashboardForm } from "./results-dashboard";
 
 export function HomeLibrary() {
   const router = useRouter();
-  const [forms, setForms] = useState<FormRow[]>([]);
+  const [forms, setForms] = useState<DashboardForm[]>([]);
   const [query, setQuery] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
   const [redo, setRedo] = useState<{ formId: string; sourceSessionId?: string } | null>(null);
   const [selected, setSelected] = useState<ScopePart[]>([]);
   const [allowReadapt, setAllowReadapt] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
   const [difficulty, setDifficulty] = useState<ExamDifficulty>("standard");
 
   async function refresh() {
     const res = await fetch("/api/library", { cache: "no-store" });
-    const data = (await res.json()) as { forms: FormRow[] };
+    const data = (await res.json()) as { forms: DashboardForm[] };
     setForms(data.forms);
   }
 
@@ -56,9 +31,8 @@ export function HomeLibrary() {
     void refresh();
     fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.json())
-      .then((data: { user?: { username?: string } | null; isAdmin?: boolean }) => {
+      .then((data: { user?: { username?: string } | null }) => {
         if (data.user?.username) setUsername(data.user.username);
-        setIsAdmin(Boolean(data.isAdmin));
       })
       .catch(() => undefined);
   }, []);
@@ -108,21 +82,17 @@ export function HomeLibrary() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div className="mx-auto max-w-6xl px-6 py-10">
       <div className="mb-8 flex items-start justify-between gap-6">
         <div className="min-w-0">
           <h1 className="text-3xl font-semibold tracking-normal">TOEFL iBT Mock</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 tracking-normal text-[#5b6775]">
-            Local practice for the enhanced exam. Generate a new paper, or open an old one to review, retake, or redo selected parts.
+            Local practice for the enhanced exam. Finished sittings appear in the dashboard below with a full score
+            analysis. You can still open a paper to review items, retake, or redo selected parts.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {username && <span className="mr-1 text-sm text-[#5b6775]">{username}</span>}
-          {isAdmin && (
-            <a href="/users" className="rounded border border-[#9aa8b5] bg-white px-4 py-2 text-sm">
-              Users
-            </a>
-          )}
           <a href="/settings" className="rounded border border-[#9aa8b5] bg-white px-4 py-2 text-sm">
             Gemini models
           </a>
@@ -143,10 +113,12 @@ export function HomeLibrary() {
 
       {generating && (
         <div className="panel mb-6 p-5 text-sm">
-          Assembling a full form, including both Reading and Listening Module 2 variants and audio. This can take one to three minutes if speech synthesis is enabled.
+          Assembling a full form: original items from the subject pack when a model key is set, both Reading and Listening Module 2 variants, and audio. This can take one to three minutes.
         </div>
       )}
       {error && <div className="mb-4 text-sm text-red-700">{error}</div>}
+
+      <LibraryOverview forms={filtered} />
 
       <input
         value={query}
@@ -154,6 +126,8 @@ export function HomeLibrary() {
         placeholder="Filter by topic or section"
         className="mb-5 w-full border border-[#c5d0da] px-3 py-2"
       />
+
+      <h2 className="mb-3 text-xl font-semibold">Every test result</h2>
 
       {filtered.length === 0 && !generating && (
         <div className="panel p-8 text-[#5b6775]">
@@ -171,9 +145,9 @@ export function HomeLibrary() {
                   <div className="text-sm text-[#5b6775]">{new Date(form.createdAt).toLocaleString()}</div>
                   <div className="mt-1 font-medium">{form.topics.join(" · ") || "General academic"}</div>
                   <div className="mt-1 text-xs text-[#1f4e79]">{difficultyLabel(form.difficulty)}</div>
-                  <div className="mt-2 text-sm">
-                    Attempts {form.attemptCount} · Latest <Band value={form.latestOverall} /> · Best{" "}
-                    <Band value={form.bestOverall} />
+                  <div className="mt-2 text-sm text-[#5b6775]">
+                    {form.attempts.length} sitting{form.attempts.length === 1 ? "" : "s"}
+                    {form.latestOverall != null ? " · analysis below" : " · not finished yet"}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -195,60 +169,47 @@ export function HomeLibrary() {
                   <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: form.attempts[0]?.id })}>
                     Redo parts
                   </GhostButton>
-                  <GhostButton onClick={() => setOpenId(openId === form.id ? null : form.id)}>
-                    {openId === form.id ? "Hide attempts" : "Attempts"}
-                  </GhostButton>
                 </div>
               </div>
-              {openId === form.id && (
-                <div className="mt-4 border-t border-[#e4e9ee] pt-4">
-                  {form.attempts.map((a) => (
-                    <div key={a.id} className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-                      <div>
-                        <div className="font-medium">
-                          {a.mode} · {a.scopeLabel} · {a.status}
+              <div className="mt-2 space-y-4">
+                {form.attempts.map((attempt) => (
+                  <div key={attempt.id}>
+                    {attempt.status !== "completed" || !attempt.analysis ? (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <div>
+                          <p className="font-medium capitalize">
+                            {attempt.mode} · {attempt.scopeLabel} · {attempt.status}
+                          </p>
+                          <p className="text-[#5b6775]">{new Date(attempt.createdAt).toLocaleString()}</p>
                         </div>
-                        <div className="text-[#5b6775]">
-                          {new Date(a.createdAt).toLocaleString()}
-                          {a.bands ? (
-                            <>
-                              {" "}
-                              · R <Band value={a.bands.reading} /> L <Band value={a.bands.listening} /> W{" "}
-                              <Band value={a.bands.writing} /> S <Band value={a.bands.speaking} /> · Overall{" "}
-                              <Band value={a.bands.overall} />
-                              {a.classic30 ? (
-                                <>
-                                  {" "}
-                                  · Classic 0–30 R {a.classic30.reading ?? "—"} L {a.classic30.listening ?? "—"} W{" "}
-                                  {a.classic30.writing ?? "—"} S {a.classic30.speaking ?? "—"}
-                                </>
-                              ) : null}
-                            </>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        {a.status === "completed" && (
-                          <GhostButton onClick={() => router.push(`/review/${a.id}`)}>Review</GhostButton>
-                        )}
-                        {a.status === "completed" && form.attempts.filter((x) => x.status === "completed").length > 1 && (
-                          <GhostButton
-                            onClick={() => {
-                              const other = form.attempts.find((x) => x.status === "completed" && x.id !== a.id);
-                              if (other) router.push(`/compare?a=${a.id}&b=${other.id}`);
-                            }}
-                          >
-                            Compare
-                          </GhostButton>
-                        )}
-                        <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: a.id })}>
+                        <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: attempt.id })}>
                           Redo from this
                         </GhostButton>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ) : (
+                      <>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <GhostButton onClick={() => router.push(`/review/${attempt.id}`)}>Review items</GhostButton>
+                          {form.attempts.filter((row) => row.status === "completed").length > 1 && (
+                            <GhostButton
+                              onClick={() => {
+                                const other = form.attempts.find((row) => row.status === "completed" && row.id !== attempt.id);
+                                if (other) router.push(`/compare?a=${attempt.id}&b=${other.id}`);
+                              }}
+                            >
+                              Compare
+                            </GhostButton>
+                          )}
+                          <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: attempt.id })}>
+                            Redo from this
+                          </GhostButton>
+                        </div>
+                        <AttemptAnalysisCard attempt={attempt} />
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           );
         })}

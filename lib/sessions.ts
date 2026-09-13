@@ -9,7 +9,7 @@ import { durationForPointer } from "./timing";
 import type { ExamDifficulty, Pointer, RouteLevel, ScopePart, SessionMode } from "./types";
 
 export async function createNewTest(userId: string, difficulty: ExamDifficulty = "standard") {
-  const payload = await generateFormPayload(difficulty);
+  const payload = await generateFormPayload(difficulty, userId);
   const form = await prisma.testForm.create({
     data: {
       topicTags: JSON.stringify(payload.topics),

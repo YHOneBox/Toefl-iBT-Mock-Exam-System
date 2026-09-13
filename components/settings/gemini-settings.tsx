@@ -30,9 +30,16 @@ export function GeminiSettings() {
   const [saving, setSaving] = useState(false);
   const [keyPresent, setKeyPresent] = useState(true);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [homeHref, setHomeHref] = useState("/");
 
   useEffect(() => {
     void loadSaved();
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data: { isAdmin?: boolean }) => {
+        if (data.isAdmin) setHomeHref("/users");
+      })
+      .catch(() => undefined);
   }, []);
 
   function applySettings(next: Settings | null | undefined, fallbackModels?: Model[]) {
@@ -159,8 +166,8 @@ export function GeminiSettings() {
             fallback if it is configured.
           </p>
         </div>
-        <Link href="/" className="rounded border px-3 py-2 text-sm">
-          Main page
+        <Link href={homeHref} className="rounded border px-3 py-2 text-sm">
+          {homeHref === "/users" ? "Accounts" : "Main page"}
         </Link>
       </div>
 

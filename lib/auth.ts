@@ -25,6 +25,12 @@ export async function createUser(username: string, password: string) {
   if (password.length < 4) throw new Error("Password must be at least 4 characters");
   const existing = await prisma.user.findUnique({ where: { username: name } });
   if (existing) throw new Error("That username is already taken");
+  if (name.toLowerCase() === "admin") {
+    const users = await prisma.user.findMany({ select: { username: true } });
+    if (users.some((row) => row.username.toLowerCase() === "admin")) {
+      throw new Error("The admin account already exists");
+    }
+  }
   return prisma.user.create({
     data: { username: name, passwordHash: hashPassword(password) },
   });
@@ -122,6 +128,12 @@ export function isAdminUser(user: { username: string } | null | undefined) {
 export async function requireAdmin() {
   const user = await requireUser();
   if (!isAdminUser(user)) throw new AuthError("Only the admin account can manage users", 403);
+  return user;
+}
+
+export async function requireStudent() {
+  const user = await requireUser();
+  if (isAdminUser(user)) throw new AuthError("The admin account can only manage users", 403);
   return user;
 }
 
