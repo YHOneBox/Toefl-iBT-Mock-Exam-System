@@ -98,8 +98,8 @@ function readingTaskCounts(
   answers: Record<string, unknown>,
 ) {
   const buckets: Record<string, { correct: number; possible: number }> = {};
-  for (const module of ["m1", route] as const) {
-    for (const set of flattenReadingSets(readingBundle(form, module), scope)) {
+  for (const moduleKey of ["m1", route] as const) {
+    for (const set of flattenReadingSets(readingBundle(form, moduleKey), scope)) {
       if (set.taskType === "complete_the_words") {
         const words = normalizeWords(answers[set.id] ?? answers);
         for (const token of set.tokens) {
@@ -124,8 +124,8 @@ function listeningTaskCounts(
   answers: Record<string, unknown>,
 ) {
   const buckets: Record<string, { correct: number; possible: number }> = {};
-  for (const module of ["m1", route] as const) {
-    for (const entry of flattenListeningItems(listeningBundle(form, module), scope)) {
+  for (const moduleKey of ["m1", route] as const) {
+    for (const entry of flattenListeningItems(listeningBundle(form, moduleKey), scope)) {
       const task = entry.kind === "choose" ? entry.item.taskType : entry.item.taskType;
       if (entry.kind === "choose") {
         bump(buckets, task, normalizeMcq(answers[entry.item.id]) === entry.item.answerKey);
