@@ -3,6 +3,25 @@ import type { NextRequest } from "next/server";
 
 const PUBLIC = [/^\/login$/, /^\/register$/, /^\/api\/auth\//];
 
+function publicOrigin(request: NextRequest) {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = forwardedHost || request.headers.get("host")?.split(",")[0]?.trim() || "";
+  const localHost = !host || host.startsWith("127.0.0.1") || host.startsWith("localhost");
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const proto = forwardedProto || (request.nextUrl.protocol === "https:" ? "https" : "http");
+
+  if (host && !localHost) {
+    return `${proto}://${host}`;
+  }
+
+  const configured = process.env.TOEFL_PUBLIC_URL?.replace(/\/$/, "");
+  if (configured) return configured;
+
+  // Relative Location keeps the browser on the URL the user actually opened
+  // (Tailscale hostname), instead of leaking 127.0.0.1:3010.
+  return "";
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC.some((re) => re.test(pathname))) return NextResponse.next();
@@ -11,9 +30,13 @@ export function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
-  const login = new URL("/login", request.url);
-  login.searchParams.set("next", pathname);
-  return NextResponse.redirect(login);
+  const next = pathname + request.nextUrl.search;
+  const origin = publicOrigin(request);
+  const location = `${origin}/login?next=${encodeURIComponent(next)}`;
+  return new NextResponse(null, {
+    status: 307,
+    headers: { Location: location },
+  });
 }
 
 export const config = {
