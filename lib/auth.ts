@@ -56,7 +56,17 @@ export async function getCurrentUser() {
   return row?.user ?? null;
 }
 
-export function authCookie(token: string) {
+export function isSecureRequest(req: Request) {
+  const proto = req.headers.get("x-forwarded-proto");
+  if (proto) return proto.split(",")[0].trim() === "https";
+  try {
+    return new URL(req.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function authCookie(token: string, secure = false) {
   return {
     name: COOKIE,
     value: token,
@@ -64,6 +74,7 @@ export function authCookie(token: string) {
     sameSite: "lax" as const,
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
+    secure,
   };
 }
 

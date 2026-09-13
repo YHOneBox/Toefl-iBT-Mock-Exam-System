@@ -182,6 +182,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
       const ok = window.confirm("Submit the speaking section and finish the test?");
       if (!ok) return;
     }
+    if (!session) return;
     await goNextOrAdvance(pointer, index, setIndex, form, session, goNext);
   }
 

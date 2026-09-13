@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import {
   authCookie,
+  isSecureRequest,
   claimOrphanedRecords,
   createUser,
   getCurrentUser,
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
       const user = await createUser(body.username, body.password);
       const { token } = await loginUser(body.username, body.password);
       const jar = await cookies();
-      jar.set(authCookie(token));
+      jar.set(authCookie(token, isSecureRequest(req)));
       await claimOrphanedRecords(user.id);
       return NextResponse.json({ user: publicUser(user) });
     } catch (err) {

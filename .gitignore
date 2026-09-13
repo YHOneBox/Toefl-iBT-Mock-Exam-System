@@ -11,3 +11,4 @@ data/recordings/**
 .env
 .env.local
 *.log
+HowToRunAfterUpdate.md
