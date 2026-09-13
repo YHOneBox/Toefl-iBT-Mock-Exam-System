@@ -9,6 +9,7 @@ import { enabledSections } from "@/lib/scope";
 import { classic30Scores } from "@/lib/scoring";
 import { formatSpent, itemMs, officialLimit, parseTiming, partMs } from "@/lib/timing-log";
 import type { RawScores, SectionName } from "@/lib/types";
+import { AppShell } from "../app-shell";
 import { Band, PrimaryButton } from "../ui";
 import { VoiceControls } from "../voice/voice-context";
 import type { WritingReviewFeedback } from "../tasks/writing";
@@ -40,8 +41,20 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
       .catch((e) => setError(String(e)));
   }, [sessionId]);
 
-  if (error) return <div className="p-8">{error}</div>;
-  if (!session) return <div className="p-8">Loading review…</div>;
+  if (error) {
+    return (
+      <AppShell>
+        <p>{error}</p>
+      </AppShell>
+    );
+  }
+  if (!session) {
+    return (
+      <AppShell>
+        <p className="muted">Loading review…</p>
+      </AppShell>
+    );
+  }
   const bands = session.scoreReport?.bands || {};
   const concordance = session.scoreReport?.concordance as
     | {
@@ -60,21 +73,23 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
     concordance?.classic30 || classic30Scores((session.scoreReport?.raw || {}) as RawScores);
 
   return (
-    <div className="review-page mx-auto max-w-5xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Score report</h1>
-          <p className="text-sm text-[#5b6775]">
-            {session.topics.join(" · ")}
-            {session.form.difficulty ? ` · ${difficultyLabel(session.form.difficulty)}` : ""}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/" className="rounded border px-3 py-2 text-sm">Main page</Link>
-        </div>
+    <AppShell
+      nav={
+        <Link href="/" className="ui-link">
+          Main page
+        </Link>
+      }
+    >
+    <div className="review-page">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">Score report</h1>
+        <p className="muted text-sm">
+          {session.topics.join(" · ")}
+          {session.form.difficulty ? ` · ${difficultyLabel(session.form.difficulty)}` : ""}
+        </p>
       </div>
 
-      <div className="panel mb-6 grid gap-4 p-5 md:grid-cols-5">
+      <div className="mb-6 grid gap-4 md:grid-cols-5">
         {(["reading", "listening", "writing", "speaking", "overall"] as const).map((k) => {
           const selectable = k !== "overall" && enabledSections(session.scope).includes(k);
           const active = k === section;
@@ -84,15 +99,15 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
               type="button"
               disabled={!selectable}
               onClick={() => selectable && setSection(k)}
-              className={`rounded border p-3 text-left ${
-                active ? "border-[#1f4e79] bg-[#e8f1fb]" : "border-transparent"
+              className={`score-card score-card-${k} score-tile score-tile-${k} panel p-3 text-left ${
+                active ? "is-active" : ""
               } ${selectable ? "cursor-pointer" : "cursor-default"}`}
             >
-              <div className="text-xs uppercase text-[#5b6775]">{k}</div>
-              <div className="text-2xl"><Band value={bands[k]} /></div>
-              <div className="text-xs text-[#5b6775]">{concordance?.cefr?.[k] || ""}</div>
+              <div className="muted text-xs uppercase">{k}</div>
+              <div className="score-figure text-2xl"><Band value={bands[k]} /></div>
+              <div className="muted text-xs">{concordance?.cefr?.[k] || ""}</div>
               {k !== "overall" && (
-                <div className="mt-1 text-sm font-semibold text-[#1f4e79]">
+                <div className="score-figure mt-1 text-sm font-semibold">
                   Classic 0–30: {classic[k] ?? "—"}
                 </div>
               )}
@@ -106,9 +121,7 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
             key={part}
             type="button"
             onClick={() => setSection(part)}
-            className={`rounded px-4 py-2 text-sm font-semibold capitalize ${
-              section === part ? "bg-[#1f4e79] text-white" : "border border-[#9aa8b5] bg-white"
-            }`}
+            className={`section-tab section-tab-${part} ${section === part ? "is-active" : ""}`}
           >
             {part}
           </button>
@@ -120,7 +133,7 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
           <VoiceControls compact />
         </div>
       )}
-      <div className="mb-6 text-sm text-[#5b6775]">
+      <div className="muted mb-6 text-sm">
         Comparable 0–120: {concordance?.overall120 ?? "—"} · Classic section scores use the older 0–30 scale.
         {bands.projectedOverall != null && (
           <>
@@ -130,7 +143,7 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
           </>
         )}
       </div>
-      <p className="mb-8 text-xs leading-5 text-[#5b6775]">{concordance?.notes?.method}</p>
+      <p className="muted mb-8 text-xs leading-5">{concordance?.notes?.method}</p>
 
       <TimingSummary session={session} section={section} />
 
@@ -142,6 +155,7 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
         speakingResults={traits?.itemResults}
       />
     </div>
+    </AppShell>
   );
 }
 
@@ -255,7 +269,7 @@ function ReviewItems({
       {section === "speaking" && (
         <>
           <h2 className="text-lg font-semibold">Speaking</h2>
-          <p className="mb-4 text-sm leading-6 text-[#5b6775]">
+          <p className="muted mb-4 text-sm leading-6">
             Listen and Repeat is scored 0–5 from how closely the transcript matches the target sentence
             (word-error rate). Interview answers are scored 0–5 from the transcript: an LLM rubric if an
             API key is configured, otherwise length and how completely the question is answered.
@@ -317,7 +331,7 @@ function SpeakingScoreNote({
           : " · LLM rubric"
         : "";
   return (
-    <p className="mb-2 text-sm font-semibold text-[#1f4e79]">
+    <p className="mb-2 text-sm font-semibold text-[#be123c]">
       Score: {result.score}/5{extra}
     </p>
   );
@@ -325,7 +339,7 @@ function SpeakingScoreNote({
 
 function TimeChip({ ms }: { ms?: number }) {
   if (!ms) return null;
-  return <p className="mb-2 text-xs font-semibold text-[#1f4e79]">Time on this question: {formatSpent(ms)}</p>;
+  return <p className="mb-2 text-xs font-semibold text-[#0f766e]">Time on this question: {formatSpent(ms)}</p>;
 }
 
 function TimingSummary({ session, section }: { session: ClientSession; section: SectionName }) {
@@ -354,7 +368,7 @@ function TimingSummary({ session, section }: { session: ClientSession; section: 
   const sectionMs = { reading, listening, writing, speaking }[section];
   if (!sectionMs) {
     return (
-      <div className="panel mb-8 p-4 text-sm text-[#5b6775]">
+      <div className="muted panel mb-8 p-4 text-sm">
         Time on each part will appear for attempts started after this update.
       </div>
     );
@@ -363,7 +377,7 @@ function TimingSummary({ session, section }: { session: ClientSession; section: 
     <div className="panel mb-8 p-5">
       <h2 className="mb-3 text-lg font-semibold">Time spent · {section}</h2>
       <div className="mb-4">
-        <div className="text-xs uppercase text-[#5b6775]">{section}</div>
+        <div className="muted text-xs uppercase">{section}</div>
         <div className="font-semibold">{formatSpent(sectionMs)}</div>
       </div>
       <div className="space-y-1 text-sm">

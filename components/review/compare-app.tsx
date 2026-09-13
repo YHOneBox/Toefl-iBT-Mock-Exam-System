@@ -1,9 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { ClientSession } from "@/lib/client-types";
+import { AppShell } from "../app-shell";
 import { Band } from "../ui";
+
+function CompareFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <AppShell
+      nav={
+        <Link href="/" className="ui-link">
+          Main page
+        </Link>
+      }
+    >
+      {children}
+    </AppShell>
+  );
+}
 
 export function CompareApp() {
   const params = useSearchParams();
@@ -23,9 +39,9 @@ export function CompareApp() {
       .catch((e) => setError(String(e)));
   }, [a, b]);
 
-  if (!a || !b) return <div className="p-8">Choose two attempts to compare.</div>;
-  if (error) return <div className="p-8">{error}</div>;
-  if (!data) return <div className="p-8">Loading comparison…</div>;
+  if (!a || !b) return <CompareFrame><p>Choose two attempts to compare.</p></CompareFrame>;
+  if (error) return <CompareFrame><p>{error}</p></CompareFrame>;
+  if (!data) return <CompareFrame><p className="muted">Loading comparison…</p></CompareFrame>;
 
   const leftBands = data.left.scoreReport?.bands || {};
   const rightBands = data.right.scoreReport?.bands || {};
@@ -34,9 +50,9 @@ export function CompareApp() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <CompareFrame>
       <h1 className="mb-6 text-2xl font-semibold">Compare attempts</h1>
-      <div className="panel mb-6 grid gap-4 p-5 md:grid-cols-2">
+      <div className="mb-6 grid gap-4 md:grid-cols-2">
         <Side label="Attempt A" session={data.left} bands={leftBands} />
         <Side label="Attempt B" session={data.right} bands={rightBands} />
       </div>
@@ -46,8 +62,8 @@ export function CompareApp() {
           const r = stringify(data.right.responses[id]?.value);
           const flip = l !== r;
           return (
-            <div key={id} className={`panel p-3 text-sm ${flip ? "border-amber-400" : ""}`}>
-              <div className="mb-1 font-mono text-xs text-[#5b6775]">{id}</div>
+            <div key={id} className={`panel p-3 text-sm ${flip ? "border-[#f59e0b]" : ""}`}>
+              <div className="muted mb-1 font-mono text-xs">{id}</div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>{l || "—"}</div>
                 <div>{r || "—"}</div>
@@ -56,7 +72,7 @@ export function CompareApp() {
           );
         })}
       </div>
-    </div>
+    </CompareFrame>
   );
 }
 
@@ -70,12 +86,15 @@ function Side({
   bands: Record<string, number | undefined>;
 }) {
   return (
-    <div>
+    <div className="panel p-5">
       <div className="font-semibold">{label}</div>
-      <div className="text-sm text-[#5b6775]">{new Date(session.createdAt).toLocaleString()}</div>
-      <div className="mt-2 text-sm">
-        R <Band value={bands.reading} /> · L <Band value={bands.listening} /> · W <Band value={bands.writing} /> · S{" "}
-        <Band value={bands.speaking} /> · Overall <Band value={bands.overall} />
+      <div className="muted text-sm">{new Date(session.createdAt).toLocaleString()}</div>
+      <div className="mt-3 flex flex-wrap gap-2 text-sm">
+        <span className="chip chip-reading">R <Band value={bands.reading} /></span>
+        <span className="chip chip-listening">L <Band value={bands.listening} /></span>
+        <span className="chip chip-writing">W <Band value={bands.writing} /></span>
+        <span className="chip chip-speaking">S <Band value={bands.speaking} /></span>
+        <span className="chip chip-overall">Overall <Band value={bands.overall} /></span>
       </div>
     </div>
   );

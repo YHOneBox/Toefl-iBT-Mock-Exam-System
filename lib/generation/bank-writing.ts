@@ -1,7 +1,9 @@
 import { makeId } from "../ids";
 import type { BuildSentenceItem, DiscussionTask, EmailTask } from "../types";
 import { cefrAllowed, type DifficultyBand } from "./difficulty";
-import { fingerprint, seedKey } from "./grown-bank";
+import { contentKey, isSeenKey, isSeenText } from "./content-key";
+import { seedKey } from "./grown-bank";
+import { NeedMoreItems } from "./need-more";
 import type { SentenceSeed } from "./seeds";
 import { pick, pickOne, shuffle } from "./util";
 
@@ -191,15 +193,26 @@ export function makeWritingBundle(
   band: DifficultyBand = "standard",
   extras: SentenceSeed[] = [],
   seen: Set<string> = new Set(),
+  strict = false,
 ) {
   const allow = new Set(cefrAllowed(band));
-  const unseen = (row: SentenceSeed) => !seen.has(seedKey("sentences", row));
+  const unseen = (row: SentenceSeed) => !isSeenKey(seen, seedKey("sentences", row));
   const merged = [...extras].reverse().concat(SENTENCES);
-  const sentencePool = merged.filter((row) => allow.has(row.cefr) && unseen(row));
-  const emailPool = EMAILS.filter((row) => allow.has(row.cefr) && !seen.has(fingerprint(row.scenario)));
+  const usedExchanges = new Set<string>();
+  const sentencePool = merged.filter((row) => {
+    if (!allow.has(row.cefr) || !unseen(row)) return false;
+    const key = contentKey(row.exchange);
+    if (!key || usedExchanges.has(key)) return false;
+    usedExchanges.add(key);
+    return true;
+  });
+  const emailPool = EMAILS.filter((row) => allow.has(row.cefr) && !isSeenText(seen, row.scenario));
   const discussionPool = DISCUSSIONS.filter(
-    (row) => allow.has(row.cefr) && !seen.has(fingerprint(row.prompt)),
+    (row) => allow.has(row.cefr) && !isSeenText(seen, row.prompt),
   );
+  if (strict && sentencePool.length < 10) throw new NeedMoreItems("sentences");
+  if (strict && emailPool.length === 0) throw new NeedMoreItems("email");
+  if (strict && discussionPool.length === 0) throw new NeedMoreItems("discussion");
   return {
     sentences: (sentencePool.length >= 10 ? sentencePool.slice(0, 10) : pick(merged, 10)).map((row) => ({
       ...row,

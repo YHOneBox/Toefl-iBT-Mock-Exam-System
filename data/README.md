@@ -8,6 +8,7 @@ This folder stays on the machine that runs the mock. Git tracks only empty `audi
 | `app-settings.json` | Gemini model order |
 | `item-bank.json` | Extra original items saved after LLM generation |
 | `seen-items.json` | Per-student fingerprints so new tests skip old items |
+| `prep-jobs.json` | In-progress and finished “prepare a test” jobs |
 | `audio/` | Generated listening / speaking prompt files |
 | `recordings/` | Student speaking takes |
 

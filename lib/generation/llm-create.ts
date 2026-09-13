@@ -336,16 +336,27 @@ export async function createFreshItems(
   difficulty: ExamDifficulty,
   form: TestFormPayload,
   extraAvoid: string[] = [],
+  opts?: { scale?: number; onBatch?: (label: string) => void },
 ): Promise<{ bank: GrownBank; added: number }> {
   const existing = loadGrownBank();
   const avoid = [...new Set([...avoidFrom(form, existing), ...extraAvoid])];
   const bank = emptyGrownBank();
+  const scale = opts?.scale === 2 ? 2 : 1;
+  const ctwN = scale === 2 ? 6 : 4;
+  const dailyN = scale === 2 ? 8 : 6;
+  const chooseN = scale === 2 ? 16 : 10;
+  const talkN = scale === 2 ? 3 : 2;
+  const convN = scale === 2 ? 6 : 4;
+  const annN = scale === 2 ? 3 : 2;
+  const sentN = scale === 2 ? 14 : 10;
 
-  const tasks = [
-    withRetry(
+  const tasks: Array<[string, Promise<void>]> = [
+    [
+      "reading passages",
+      withRetry(
       (err) =>
         `${retrieveItemContext("ctw", difficulty, avoid)}
-Write 4 original Complete the Words passages.
+Write ${ctwN} original Complete the Words passages.
 Each passage: 70-100 words, at least 3 sentences, first sentence complete, 10 later words that can lose their second half.
 JSON: {"passages":[{"topic":"","text":""}]}
 ${retryNote(err)}`,
@@ -354,10 +365,13 @@ ${retryNote(err)}`,
     ).then((items) => {
       if (items) bank.ctw.push(...items.filter((item) => !checkCtwSeed(item).length));
     }),
-    withRetry(
+    ],
+    [
+      "daily-life texts",
+      withRetry(
       (err) =>
         `${retrieveItemContext("daily", difficulty, avoid)}
-Write 6 original Read in Daily Life texts (15-150 words). Include at least two texts with 3 questions; the rest may have 2.
+Write ${dailyN} original Read in Daily Life texts (15-150 words). Include at least two texts with 3 questions; the rest may have 2.
 JSON: {"items":[{"cefr":"B1","topic":"Campus life","format":"email","title":"","text":"","questions":[{"stem":"","options":["","","",""],"answerKey":0,"rationale":"","skill":"factual"}]}]}
 ${retryNote(err)}`,
       (data) => parseDailyList(data, difficulty),
@@ -365,7 +379,10 @@ ${retryNote(err)}`,
     ).then((items) => {
       if (items) bank.daily.push(...items.filter((item) => !checkDailySeed(item).length));
     }),
-    withRetry(
+    ],
+    [
+      "academic passage",
+      withRetry(
       (err) =>
         `${retrieveItemContext("academic", difficulty, avoid)}
 Write 1 original academic reading passage of 180-220 words and exactly 5 questions.
@@ -379,10 +396,13 @@ ${retryNote(err)}`,
     ).then((item) => {
       if (item) bank.academic.push(item);
     }),
-    withRetry(
+    ],
+    [
+      "listen-and-choose items",
+      withRetry(
       (err) =>
         `${retrieveItemContext("choose", difficulty, avoid)}
-Write 10 original Listen and Choose a Response items. Script is a spoken campus question or statement (8-30 words), never the printed stem.
+Write ${chooseN} original Listen and Choose a Response items. Script is a spoken campus question or statement (8-30 words), never the printed stem.
 JSON: {"items":[{"cefr":"B1","skill":"social response","script":"","options":["","","",""],"answerKey":0,"rationale":""}]}
 ${retryNote(err)}`,
       (data) => parseChooseList(data, difficulty),
@@ -390,13 +410,16 @@ ${retryNote(err)}`,
     ).then((items) => {
       if (items) bank.choose.push(...items.filter((item) => !checkChooseSeed(item).length));
     }),
-    withRetry(
+    ],
+    [
+      "listening sets",
+      withRetry(
       (err) =>
         `${retrieveItemContext("talk", difficulty, avoid)}
 Write original listening sets:
-- 2 academic talks, 175-250 words, 4 questions each, professor only
-- 4 campus conversations, 35-100 words, two speakers, 2 questions each
-- 2 campus announcements, 40-85 words, 2 questions each
+- ${talkN} academic talks, 175-250 words, 4 questions each, professor only
+- ${convN} campus conversations, 35-100 words, two speakers, 2 questions each
+- ${annN} campus announcements, 40-85 words, 2 questions each
 JSON: {"talks":[{"title":"","topic":"","cefr":"B2","speakers":[{"id":"p","label":"Professor","gender":"female","accent":"us"}],"script":[{"speakerId":"p","text":""}],"questions":[{"stem":"","options":["","","",""],"answerKey":0,"rationale":"","skill":"main idea"}]}],"conversations":[{"title":"","topic":"Campus life","cefr":"B1","speakers":[{"id":"a","label":"Woman","gender":"female","accent":"us"},{"id":"b","label":"Man","gender":"male","accent":"uk"}],"script":[{"speakerId":"a","text":""}],"questions":[]}],"announcements":[{"title":"","topic":"Campus life","cefr":"B1","speakers":[{"id":"n","label":"Announcer","gender":"female","accent":"au"}],"script":[{"speakerId":"n","text":""}],"questions":[]}]}
 ${retryNote(err)}`,
       (data) => {
@@ -420,11 +443,14 @@ ${retryNote(err)}`,
       bank.conversations.push(...bundle.conversations.filter((item) => !checkSpokenSeed(item).length));
       bank.announcements.push(...bundle.announcements.filter((item) => !checkSpokenSeed(item).length));
     }),
-    withRetry(
+    ],
+    [
+      "writing and speaking items",
+      withRetry(
       (err) =>
         `${retrieveItemContext("speaking", difficulty, avoid)}
 Write original writing/speaking seeds:
-- 10 Build a Sentence items: short A/B exchange plus tokens that exactly match the answer words
+- ${sentN} Build a Sentence items: short A/B exchange plus tokens that exactly match the answer words
 - 1 Listen and Repeat scenario with exactly 7 sentences that get longer
 - 1 interview: scenario, interviewer name, 4 questions (fact, reaction, opinion, policy)
 JSON: {"sentences":[{"cefr":"B1","exchange":"A: ...\\nB:","tokens":[],"answer":[],"rationale":""}],"repeat":{"scenario":"","setting":"","sentences":["","","","","","",""]},"interview":{"scenario":"","interviewer":"","questions":["","","",""]}}
@@ -450,9 +476,15 @@ ${retryNote(err)}`,
       if (bundle.repeat && !checkRepeatSeed(bundle.repeat).length) bank.repeats.push(bundle.repeat);
       if (bundle.interview && !checkInterviewSeed(bundle.interview).length) bank.interviews.push(bundle.interview);
     }),
+    ],
   ];
 
-  await Promise.allSettled(tasks);
+  await Promise.allSettled(
+    tasks.map(async ([label, task]) => {
+      await task;
+      opts?.onBatch?.(label);
+    }),
+  );
   const added = Object.values(bank).reduce((n, value) => n + (Array.isArray(value) ? value.length : 0), 0);
   return { bank, added };
 }

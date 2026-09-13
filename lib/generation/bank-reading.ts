@@ -2,7 +2,9 @@ import { makeId } from "../ids";
 import type { AcademicSet, DailyLifeSet, ModuleTag } from "../types";
 import { buildCompleteTheWords } from "./ctw";
 import { cefrAllowed, type DifficultyBand } from "./difficulty";
+import { contentKey, isSeenKey } from "./content-key";
 import { seedKey } from "./grown-bank";
+import { NeedMoreItems } from "./need-more";
 import type { AcademicSeed, CtwSeed, DailySeed } from "./seeds";
 import { mcq } from "./util";
 
@@ -556,11 +558,21 @@ export function makeCtwSet(
   exclude: string[] = [],
   extras: CtwSeed[] = [],
   seen: Set<string> = new Set(),
+  strict = false,
 ) {
-  const fresh = (items: CtwSeed[]) =>
-    items.filter((p) => !exclude.includes(p.text) && !seen.has(seedKey("ctw", p)));
+  const blocked = (p: CtwSeed) => {
+    const key = contentKey(p.text);
+    return (
+      exclude.some((entry) => entry === p.text || contentKey(entry) === key) ||
+      isSeenKey(seen, key)
+    );
+  };
+  const fresh = (items: CtwSeed[]) => items.filter((p) => !blocked(p));
   const unusedExtras = fresh(extras);
   const unusedAll = fresh([...extras, ...CTW_PASSAGES]);
+  if (strict && unusedExtras.length === 0 && unusedAll.length === 0) {
+    throw new NeedMoreItems("ctw");
+  }
   const chosen =
     unusedExtras.length > 0
       ? unusedExtras[unusedExtras.length - 1]
@@ -575,15 +587,19 @@ export function makeDailySets(
   extras: DailySeed[] = [],
   usedTitles: Set<string> = new Set(),
   seen: Set<string> = new Set(),
+  strict = false,
 ): DailyLifeSet[] {
   const allow = new Set(cefrAllowed(band));
   const pool = [...extras, ...DAILY];
   return counts.map((need) => {
+    const taken = (d: DailySeed) =>
+      usedTitles.has(d.title) ||
+      usedTitles.has(contentKey(d.text)) ||
+      isSeenKey(seen, seedKey("daily", d));
     const unusedFit = (items: DailySeed[], exact: boolean) =>
       items.filter(
         (d) =>
-          !usedTitles.has(d.title) &&
-          !seen.has(seedKey("daily", d)) &&
+          !taken(d) &&
           allow.has(d.cefr) &&
           (exact ? d.questions.length === need : d.questions.length >= need),
       );
@@ -591,13 +607,9 @@ export function makeDailySets(
     const extraFit = unusedFit(extras, false);
     const levelExact = unusedFit(pool, true);
     const levelFit = unusedFit(pool, false);
-    const exactAnyCefr = pool.filter(
-      (d) => !usedTitles.has(d.title) && !seen.has(seedKey("daily", d)) && d.questions.length === need,
-    );
-    const unusedAny = pool.filter(
-      (d) => !usedTitles.has(d.title) && !seen.has(seedKey("daily", d)) && d.questions.length >= need,
-    );
-    const unusedInForm = pool.filter((d) => !usedTitles.has(d.title) && d.questions.length >= 2);
+    const exactAnyCefr = pool.filter((d) => !taken(d) && d.questions.length === need);
+    const unusedAny = pool.filter((d) => !taken(d) && d.questions.length >= need);
+    const unusedInForm = pool.filter((d) => !taken(d) && d.questions.length >= 2);
     const newest = extraExact.length ? extraExact : extraFit;
     const preferred = levelExact.length
       ? levelExact
@@ -605,13 +617,19 @@ export function makeDailySets(
         ? exactAnyCefr
         : levelFit.length
           ? levelFit
-          : unusedAny.length
-            ? unusedAny
-            : unusedInForm;
+          : unusedAny;
+    if (strict && newest.length === 0 && preferred.length === 0) {
+      throw new NeedMoreItems("daily");
+    }
     const src = newest.length
       ? newest[newest.length - 1]
-      : pickSeed(preferred, unusedInForm, unusedInForm.length ? unusedInForm : DAILY);
+      : pickSeed(
+          preferred.length ? preferred : unusedInForm,
+          unusedInForm,
+          unusedInForm.length ? unusedInForm : DAILY,
+        );
     usedTitles.add(src.title);
+    usedTitles.add(contentKey(src.text));
     return {
       ...src,
       id: makeId("daily"),
@@ -628,21 +646,26 @@ export function makeAcademicSet(
   extras: AcademicSeed[] = [],
   usedTitles: Set<string> = new Set(),
   seen: Set<string> = new Set(),
+  strict = false,
 ): AcademicSet {
   const level = band === true ? "harder" : band === false ? "standard" : band;
   const allow = new Set(cefrAllowed(level));
   const pool = [...extras, ...ACADEMIC];
-  const extraFit = extras.filter(
-    (a) => !usedTitles.has(a.title) && !seen.has(seedKey("academic", a)) && allow.has(a.cefr),
-  );
-  const levelFit = pool.filter(
-    (a) => !usedTitles.has(a.title) && !seen.has(seedKey("academic", a)) && allow.has(a.cefr),
-  );
-  const unused = pool.filter((a) => !usedTitles.has(a.title) && !seen.has(seedKey("academic", a)));
+  const taken = (a: AcademicSeed) =>
+    usedTitles.has(a.title) ||
+    usedTitles.has(contentKey(a.text)) ||
+    isSeenKey(seen, seedKey("academic", a));
+  const extraFit = extras.filter((a) => !taken(a) && allow.has(a.cefr));
+  const levelFit = pool.filter((a) => !taken(a) && allow.has(a.cefr));
+  const unused = pool.filter((a) => !taken(a));
+  if (strict && extraFit.length === 0 && levelFit.length === 0 && unused.length === 0) {
+    throw new NeedMoreItems("academic");
+  }
   const src = extraFit.length
     ? extraFit[extraFit.length - 1]
     : pickSeed(levelFit.length ? levelFit : unused, unused, ACADEMIC);
   usedTitles.add(src.title);
+  usedTitles.add(contentKey(src.text));
   return {
     ...src,
     id: makeId("acad"),

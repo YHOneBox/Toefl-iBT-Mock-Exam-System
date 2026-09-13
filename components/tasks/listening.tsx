@@ -21,6 +21,10 @@ export function ListenChooseTask({
   const [heard, setHeard] = useState(Boolean(review));
 
   useEffect(() => {
+    setHeard(Boolean(review));
+  }, [item.id, review]);
+
+  useEffect(() => {
     if (review) onHeard?.();
   }, [review, onHeard]);
 
@@ -87,6 +91,10 @@ export function SpokenSetTask({
   onHeard?: () => void;
 }) {
   const [heard, setHeard] = useState(Boolean(review));
+
+  useEffect(() => {
+    setHeard(Boolean(review));
+  }, [set.id, review]);
 
   useEffect(() => {
     if (review) onHeard?.();

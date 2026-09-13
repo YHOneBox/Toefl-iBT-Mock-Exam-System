@@ -1,8 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { DATA_DIR } from "../paths";
-import { normalizeText } from "../passage";
 import { emptyGrownBank, type GrownBank } from "./seeds";
+import { contentKey } from "./content-key";
 
 const BANK_PATH = path.join(DATA_DIR, "item-bank.json");
 
@@ -20,22 +20,25 @@ const CAPS: Record<keyof Omit<GrownBank, "version">, number> = {
 };
 
 export function fingerprint(value: string): string {
-  return normalizeText(value).slice(0, 96);
+  return contentKey(value).slice(0, 96);
 }
 
 export function seedKey(kind: keyof Omit<GrownBank, "version">, item: unknown): string {
   const row = item as Record<string, unknown>;
-  if (kind === "ctw") return fingerprint(String(row.text || ""));
-  if (kind === "choose") return fingerprint(String(row.script || ""));
-  if (kind === "sentences") return fingerprint(String(row.exchange || ""));
-  if (kind === "repeats" || kind === "interviews") return fingerprint(String(row.scenario || ""));
+  if (kind === "ctw") return contentKey(String(row.text || ""));
+  if (kind === "choose") {
+    const audio = row.audio as { script?: string } | undefined;
+    return contentKey(String(row.script || audio?.script || ""));
+  }
+  if (kind === "sentences") return contentKey(String(row.exchange || ""));
+  if (kind === "repeats" || kind === "interviews") return contentKey(String(row.scenario || ""));
   if (kind === "conversations" || kind === "announcements" || kind === "talks") {
     const script = Array.isArray(row.script)
       ? row.script.map((line) => (line as { text?: string }).text || "").join(" ")
       : "";
-    return fingerprint(`${row.title || ""} ${script}`);
+    return contentKey(script || String(row.title || ""));
   }
-  return fingerprint(String(row.title || row.text || ""));
+  return contentKey(String(row.text || row.title || ""));
 }
 
 export function loadGrownBank(): GrownBank {

@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AppShell } from "@/components/app-shell";
 import { PrimaryButton } from "@/components/ui";
 
 function LoginForm() {
@@ -47,53 +48,64 @@ function LoginForm() {
   const firstUser = userCount === 0;
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
-      <h1 className="text-3xl font-semibold">TOEFL iBT Mock</h1>
-      <p className="mt-2 text-sm leading-6 text-[#5b6775]">
-        {firstUser
-          ? "Create the admin account first. After that, only admin can add other users."
-          : "Sign in to open your own tests and scores. Ask admin if you need an account."}
-      </p>
-      <form
-        className="panel mt-6 space-y-4 p-6"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit(firstUser ? "register" : "login");
-        }}
-      >
-        <label className="block text-sm">
-          Username
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="mt-1 w-full border px-3 py-2"
-            autoComplete="username"
-            required
-          />
-        </label>
-        <label className="block text-sm">
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full border px-3 py-2"
-            autoComplete={firstUser ? "new-password" : "current-password"}
-            required
-          />
-        </label>
-        {error && <p className="text-sm text-red-700">{error}</p>}
-        <PrimaryButton type="submit" disabled={busy || !username || !password}>
-          {busy ? "Please wait…" : firstUser ? "Create first account" : "Sign in"}
-        </PrimaryButton>
-      </form>
-    </div>
+    <AppShell>
+      <div className="app-auth">
+        <div className="app-auth-card">
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-[#0f766e]">Local practice</p>
+          <h1 className="text-3xl font-semibold">Sign in</h1>
+          <p className="muted mt-2 text-sm leading-6">
+            {firstUser
+              ? "Create the admin account first. After that, only admin can add other users."
+              : "Open your own tests and scores. Ask admin if you need an account."}
+          </p>
+          <form
+            className="panel mt-6 space-y-4 p-6"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit(firstUser ? "register" : "login");
+            }}
+          >
+            <label className="block text-sm">
+              Username
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="field mt-1"
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label className="block text-sm">
+              Password
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="field mt-1"
+                autoComplete={firstUser ? "new-password" : "current-password"}
+                required
+              />
+            </label>
+            {error && <p className="text-sm text-red-700">{error}</p>}
+            <PrimaryButton type="submit" disabled={busy || !username || !password}>
+              {busy ? "Please wait…" : firstUser ? "Create first account" : "Sign in"}
+            </PrimaryButton>
+          </form>
+        </div>
+      </div>
+    </AppShell>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="p-8">Loading…</div>}>
+    <Suspense
+      fallback={
+        <AppShell>
+          <p className="muted">Loading…</p>
+        </AppShell>
+      }
+    >
       <LoginForm />
     </Suspense>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { langForAccent } from "@/lib/accents";
 import type { AudioRef, SpokenSet } from "@/lib/types";
+import { applyPlaybackGain, speechVolume } from "@/lib/playback-gain";
 import { useVoice } from "./voice/voice-context";
 
 export function PlayOnceAudio({
@@ -26,14 +27,23 @@ export function PlayOnceAudio({
   const [playing, setPlaying] = useState(false);
   const { prefs, pickVoice } = useVoice();
   const ref = useRef<HTMLAudioElement | null>(null);
+  const gen = useRef(0);
   const ended = useRef(onEnded);
   ended.current = onEnded;
+
+  function stopPlayback() {
+    gen.current += 1;
+    window.speechSynthesis.cancel();
+    ref.current?.pause();
+    ref.current = null;
+  }
 
   useEffect(() => {
     setPlayed(false);
     setPlaying(false);
-    window.speechSynthesis.cancel();
-    ref.current?.pause();
+    stopPlayback();
+    return () => stopPlayback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemKey]);
 
   useEffect(() => {
@@ -51,28 +61,39 @@ export function PlayOnceAudio({
 
   async function play() {
     if (played && !allowReplay) return;
+    stopPlayback();
+    const token = gen.current;
     setPlaying(true);
     if (audio.path && !audio.fallbackTts) {
       const src = `/api/media?path=${encodeURIComponent(`data/audio/${audio.path}`)}`;
       const el = new Audio(src);
       ref.current = el;
-      el.volume = prefs.volume;
+      applyPlaybackGain(el, prefs.volume);
       el.playbackRate = audio.rate ?? 1;
-      el.onended = finish;
-      await el.play().catch(() => speak());
+      el.onended = () => {
+        if (token !== gen.current) return;
+        finish();
+      };
+      await el.play().catch(() => {
+        if (token !== gen.current) return;
+        speak(token);
+      });
       return;
     }
-    speak();
+    speak(token);
   }
 
-  function speak() {
+  function speak(token = gen.current) {
     const utter = new SpeechSynthesisUtterance(audio.script);
     utter.lang = langForAccent(audio.accent);
     utter.rate = prefs.rate * (audio.rate ?? 1);
-    utter.volume = prefs.volume;
+    utter.volume = speechVolume(prefs.volume);
     const voice = pickVoice(audio.gender, audio.accent);
     if (voice) utter.voice = voice;
-    utter.onend = finish;
+    utter.onend = () => {
+      if (token !== gen.current) return;
+      finish();
+    };
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utter);
   }
@@ -107,14 +128,25 @@ export function DialoguePlayer({
   const [playing, setPlaying] = useState(false);
   const [lineIndex, setLineIndex] = useState(-1);
   const { prefs, pickVoice } = useVoice();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const gen = useRef(0);
   const ended = useRef(onEnded);
   ended.current = onEnded;
+
+  function stopPlayback() {
+    gen.current += 1;
+    window.speechSynthesis.cancel();
+    audioRef.current?.pause();
+    audioRef.current = null;
+  }
 
   useEffect(() => {
     setPlayed(false);
     setPlaying(false);
     setLineIndex(-1);
-    window.speechSynthesis.cancel();
+    stopPlayback();
+    return () => stopPlayback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [set.id]);
 
   useEffect(() => {
@@ -138,28 +170,32 @@ export function DialoguePlayer({
     return next && next.speakerId !== line?.speakerId ? 850 : talkPause;
   }
 
-  function playLineFile(index: number) {
+  function playLineFile(index: number, token: number) {
+    if (token !== gen.current) return;
     if (index >= set.script.length) {
       finishAll();
       return;
     }
     const clip = set.lineAudio?.[index];
     if (!clip?.path || clip.fallbackTts) {
-      speakLine(index);
+      speakLine(index, token);
       return;
     }
     const el = new Audio(`/api/media?path=${encodeURIComponent(`data/audio/${clip.path}`)}`);
-    el.volume = prefs.volume;
+    audioRef.current = el;
+    applyPlaybackGain(el, prefs.volume);
     el.playbackRate = clip.rate ?? set.audio.rate ?? 1;
     el.onended = () => {
-      window.setTimeout(() => playLineFile(index + 1), lineGap(index));
+      if (token !== gen.current) return;
+      window.setTimeout(() => playLineFile(index + 1, token), lineGap(index));
     };
-    el.onerror = () => speakLine(index);
+    el.onerror = () => speakLine(index, token);
     setLineIndex(index);
-    void el.play().catch(() => speakLine(index));
+    void el.play().catch(() => speakLine(index, token));
   }
 
-  function speakLine(index: number) {
+  function speakLine(index: number, token: number) {
+    if (token !== gen.current) return;
     const line = set.script[index];
     if (!line) {
       finishAll();
@@ -169,11 +205,12 @@ export function DialoguePlayer({
     const utter = new SpeechSynthesisUtterance(line.text);
     utter.lang = langForAccent(speaker?.accent || set.audio.accent);
     utter.rate = prefs.rate * (set.audio.rate ?? 1);
-    utter.volume = prefs.volume;
+    utter.volume = speechVolume(prefs.volume);
     const voice = pickVoice(speaker?.gender || "female", speaker?.accent || set.audio.accent);
     if (voice) utter.voice = voice;
     utter.onend = () => {
-      window.setTimeout(() => playLineFile(index + 1), lineGap(index));
+      if (token !== gen.current) return;
+      window.setTimeout(() => playLineFile(index + 1, token), lineGap(index));
     };
     setLineIndex(index);
     window.speechSynthesis.speak(utter);
@@ -181,9 +218,10 @@ export function DialoguePlayer({
 
   function play() {
     if (played && !allowReplay) return;
+    stopPlayback();
+    const token = gen.current;
     setPlaying(true);
-    window.speechSynthesis.cancel();
-    playLineFile(0);
+    playLineFile(0, token);
   }
 
   return (
@@ -212,6 +250,11 @@ export function DialoguePlayer({
 }
 
 export function RecordingPlayer({ path }: { path?: string | null }) {
+  const { prefs } = useVoice();
+  const ref = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    if (ref.current) applyPlaybackGain(ref.current, prefs.volume);
+  }, [path, prefs.volume]);
   if (!path) return <p className="text-sm text-[#5b6775]">No recording</p>;
-  return <audio controls src={`/api/media?path=${encodeURIComponent(path)}`} className="w-full" />;
+  return <audio ref={ref} controls src={`/api/media?path=${encodeURIComponent(path)}`} className="w-full" />;
 }

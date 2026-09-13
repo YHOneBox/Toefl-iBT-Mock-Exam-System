@@ -251,6 +251,398 @@ textarea {
   background: #1f4e79;
 }
 
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.ui-btn:disabled {
+  opacity: 0.5;
+}
+
+.ui-primary,
+.ui-accent {
+  border: 0;
+  background: #1f4e79;
+  color: #fff;
+}
+
+.ui-ghost {
+  border: 1px solid #9aa8b5;
+  background: #fff;
+  color: #1b2430;
+}
+
+.app-shell {
+  min-height: 100%;
+  color: #14221f;
+  background:
+    radial-gradient(900px 420px at 0% -10%, #c8ebe1 0%, transparent 55%),
+    radial-gradient(800px 360px at 100% 0%, #fde7cf 0%, transparent 50%),
+    #e7f0eb;
+}
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px;
+  background: #0f6b63;
+  color: #f4faf8;
+  box-shadow: 0 8px 24px -16px rgba(15, 107, 99, 0.8);
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 10px;
+  background: #f97316;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.app-brand-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.app-brand-copy strong {
+  font-size: 1rem;
+}
+
+.app-brand-copy small {
+  color: #b7d4ce;
+  font-size: 0.75rem;
+}
+
+.app-topbar-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-topbar-nav .ui-ghost {
+  border-color: #7ec8c0;
+  background: transparent;
+  color: #e7f4f1;
+}
+
+.app-topbar-nav .ui-ghost:hover {
+  background: #0d9488;
+}
+
+.app-topbar-nav .ui-link {
+  border: 1px solid #7ec8c0;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  color: #e7f4f1;
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.app-topbar-nav .ui-link:hover {
+  background: #0d9488;
+}
+
+.app-main {
+  width: min(72rem, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1.75rem 0 3rem;
+}
+
+.app-shell .panel {
+  border: 1px solid #c9d8d2;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 16px 40px -28px rgba(11, 61, 56, 0.55);
+}
+
+.app-shell .ui-primary {
+  border-radius: 8px;
+  background: #0f766e;
+}
+
+.app-shell .ui-primary:hover:not(:disabled) {
+  background: #0d9488;
+}
+
+.app-shell .ui-accent {
+  border-radius: 8px;
+  background: #c2410c;
+}
+
+.app-shell .ui-accent:hover:not(:disabled) {
+  background: #ea580c;
+}
+
+.app-shell .ui-ghost {
+  border-radius: 8px;
+  border-color: #9cb6af;
+}
+
+.app-shell .field {
+  width: 100%;
+  border: 1px solid #b7c7c1;
+  border-radius: 8px;
+  background: #f8fbf9;
+  padding: 0.55rem 0.75rem;
+}
+
+.app-shell .field:focus {
+  outline: 2px solid #0f766e;
+  outline-offset: 1px;
+}
+
+.app-shell .muted {
+  color: #5a6b66;
+}
+
+.app-shell .score-card {
+  border-top: 4px solid #64748b;
+}
+
+.app-shell .score-card-reading {
+  border-top-color: #0f766e;
+}
+
+.app-shell .score-card-reading .score-figure {
+  color: #0f766e;
+}
+
+.app-shell .score-card-reading .score-bar > span {
+  background: #0f766e;
+}
+
+.app-shell .score-card-listening {
+  border-top-color: #4338ca;
+}
+
+.app-shell .score-card-listening .score-figure {
+  color: #4338ca;
+}
+
+.app-shell .score-card-listening .score-bar > span {
+  background: #4338ca;
+}
+
+.app-shell .score-card-writing {
+  border-top-color: #b45309;
+}
+
+.app-shell .score-card-writing .score-figure {
+  color: #b45309;
+}
+
+.app-shell .score-card-writing .score-bar > span {
+  background: #b45309;
+}
+
+.app-shell .score-card-speaking {
+  border-top-color: #be123c;
+}
+
+.app-shell .score-card-speaking .score-figure {
+  color: #be123c;
+}
+
+.app-shell .score-card-speaking .score-bar > span {
+  background: #be123c;
+}
+
+.app-shell .score-card-overall {
+  border-top-color: #334155;
+}
+
+.app-shell .score-card-overall .score-figure {
+  color: #334155;
+}
+
+.app-shell .score-card-overall .score-bar > span {
+  background: #334155;
+}
+
+.app-shell .score-bar {
+  background: #e3eeea;
+}
+
+.app-shell .score-bar > span {
+  background: #0f766e;
+}
+
+.app-shell .trend-bar {
+  background: #0f766e;
+}
+
+.app-shell .section-tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.app-shell .section-tab-reading {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.app-shell .section-tab-reading.is-active {
+  background: #0f766e;
+  color: #fff;
+}
+
+.app-shell .section-tab-listening {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.app-shell .section-tab-listening.is-active {
+  background: #4338ca;
+  color: #fff;
+}
+
+.app-shell .section-tab-writing {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.app-shell .section-tab-writing.is-active {
+  background: #c2410c;
+  color: #fff;
+}
+
+.app-shell .section-tab-speaking {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.app-shell .section-tab-speaking.is-active {
+  background: #be123c;
+  color: #fff;
+}
+
+.app-shell .chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.app-shell .chip-reading {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.app-shell .chip-listening {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.app-shell .chip-writing {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.app-shell .chip-speaking {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.app-shell .chip-overall {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.app-shell .score-tile.is-active {
+  box-shadow: 0 0 0 2px #0f766e;
+}
+
+.app-shell .score-tile-listening.is-active {
+  box-shadow: 0 0 0 2px #4338ca;
+}
+
+.app-shell .score-tile-writing.is-active {
+  box-shadow: 0 0 0 2px #c2410c;
+}
+
+.app-shell .score-tile-speaking.is-active {
+  box-shadow: 0 0 0 2px #be123c;
+}
+
+.app-auth {
+  display: grid;
+  min-height: calc(100dvh - 4.5rem);
+  place-items: center;
+  padding: 1rem 0 3rem;
+}
+
+.app-auth-card {
+  width: min(28rem, 100%);
+}
+
+.app-notice {
+  border-left: 4px solid #0f766e;
+  background: #ecfdf7;
+}
+
+.app-notice-warn {
+  border-left: 4px solid #c2410c;
+  background: #fff7ed;
+}
+
+.app-progress {
+  height: 0.7rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d7e6e1;
+}
+
+.app-progress > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #0f766e, #f97316);
+  transition: width 0.35s ease;
+}
+
+.app-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 5.5rem 1rem 2rem;
+  background: rgba(15, 23, 20, 0.45);
+}
+
 nextjs-portal,
 [data-next-mark-loading],
 #__next-dev-indicator,

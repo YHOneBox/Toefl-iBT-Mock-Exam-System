@@ -3,7 +3,8 @@ import { ACCENT_GENDER_PAIRS } from "../accents";
 import { splitSentences } from "../passage";
 import type { Accent, ListenChooseItem, ModuleTag, SpokenSet } from "../types";
 import type { DifficultyBand } from "./difficulty";
-import { fingerprint, seedKey } from "./grown-bank";
+import { contentKey, isSeenKey, spokenAudioKeys, spokenJoinKey } from "./content-key";
+import { NeedMoreItems } from "./need-more";
 import type { ChooseSeed, SpokenSeed } from "./seeds";
 import { audio, joinScript, mcq, pick, pickOne } from "./util";
 
@@ -368,13 +369,16 @@ function pickUniqueThenFill<T>(
   key: (item: T) => string,
   seen: Set<string> = new Set(),
   seenKey: (item: T) => string = key,
+  strict = false,
+  kind = "listening",
 ): T[] {
   const unused = pool.filter((item) => !used.has(key(item)));
-  const unusedUnseen = unused.filter((item) => !seen.has(seenKey(item)));
-  const unusedSeen = unused.filter((item) => seen.has(seenKey(item)));
+  const unusedUnseen = unused.filter((item) => !isSeenKey(seen, seenKey(item)));
+  const unusedSeen = unused.filter((item) => isSeenKey(seen, seenKey(item)));
   const picked: T[] = [];
   const pickedKeys = new Set<string>();
-  for (const item of [...unusedUnseen, ...unusedSeen]) {
+  const order = strict ? unusedUnseen : [...unusedUnseen, ...unusedSeen];
+  for (const item of order) {
     if (picked.length >= n) break;
     const itemKey = key(item);
     if (!itemKey || pickedKeys.has(itemKey)) continue;
@@ -383,6 +387,7 @@ function pickUniqueThenFill<T>(
     used.add(itemKey);
   }
   if (picked.length >= n) return picked;
+  if (strict) throw new NeedMoreItems(kind);
   const rest = pick(
     pool.filter((item) => !pickedKeys.has(key(item))),
     n - picked.length,
@@ -398,13 +403,23 @@ function chooseItems(
   usedScripts: Set<string> = new Set(),
   cefrList?: string[],
   seen: Set<string> = new Set(),
+  strict = false,
 ): ListenChooseItem[] {
   const merged = [...extras].reverse().concat(CHOOSE);
   const leveled = cefrList?.length ? merged.filter((row) => cefrList.includes(row.cefr)) : merged;
   const source = leveled.length
     ? [...leveled, ...merged.filter((row) => !leveled.includes(row))]
     : merged;
-  return pickUniqueThenFill(source, n, usedScripts, (row) => fingerprint(row.script), seen).map((row, i) => ({
+  return pickUniqueThenFill(
+    source,
+    n,
+    usedScripts,
+    (row) => contentKey(row.script),
+    seen,
+    (row) => contentKey(row.script),
+    strict,
+    "choose",
+  ).map((row, i) => ({
     id: makeId("lcr"),
     taskType: "listen_choose_response" as const,
     module,
@@ -716,6 +731,43 @@ const TALKS: SpokenSeed[] = [
   },
 ];
 
+function spokenConflicts(
+  seed: SpokenSeed,
+  used: { scripts: Set<string>; titles: Set<string> },
+  seen: Set<string>,
+): boolean {
+  if (used.titles.has(seed.title.trim())) return true;
+  return spokenAudioKeys(expandTalkScript(seed).script).some((key) => used.scripts.has(key) || isSeenKey(seen, key));
+}
+
+function markSpokenUsed(seed: SpokenSeed, used: { scripts: Set<string>; titles: Set<string> }) {
+  used.titles.add(seed.title.trim());
+  for (const key of spokenAudioKeys(expandTalkScript(seed).script)) used.scripts.add(key);
+}
+
+function pickSpoken(
+  pool: SpokenSeed[],
+  n: number,
+  used: { scripts: Set<string>; titles: Set<string> },
+  seen: Set<string>,
+  strict: boolean,
+  kind: string,
+): SpokenSeed[] {
+  const open = pool.filter((seed) => !spokenConflicts(seed, used, seen));
+  const picked = pickUniqueThenFill(
+    open,
+    n,
+    used.scripts,
+    (s) => spokenJoinKey(expandTalkScript(s).script),
+    seen,
+    (s) => spokenJoinKey(expandTalkScript(s).script),
+    strict,
+    kind,
+  );
+  for (const seed of picked) markSpokenUsed(seed, used);
+  return picked;
+}
+
 function expandTalkScript(seed: SpokenSeed): SpokenSeed {
   if (seed.taskType !== "listen_academic_talk" || seed.script.length >= 4) return seed;
   const speakerId = seed.script[0]?.speakerId || seed.speakers[0]?.id || "p";
@@ -766,6 +818,7 @@ export function listeningBundleFor(
         };
         used?: { scripts: Set<string>; titles: Set<string> };
         seen?: Set<string>;
+        strict?: boolean;
       } = false,
 ) {
   const hard = typeof opts === "boolean" ? opts : Boolean(opts.hard || opts.band === "harder");
@@ -777,6 +830,7 @@ export function listeningBundleFor(
     titles: new Set<string>(),
   };
   const seen = typeof opts === "boolean" ? new Set<string>() : opts.seen || new Set<string>();
+  const strict = typeof opts === "boolean" ? false : Boolean(opts.strict);
   const convAll = [...(extras.conversations || [])].reverse().concat(CONVERSATIONS);
   const talkAll = [...(extras.talks || [])].reverse().concat(TALKS);
   const annAll = [...(extras.announcements || [])].reverse().concat(ANNOUNCEMENTS);
@@ -796,31 +850,21 @@ export function listeningBundleFor(
   const talkPool = [...talkPreferred, ...talkAll.filter((item) => !talkPreferred.includes(item))];
   const chooseCefr = band === "easier" ? ["A2", "B1"] : band === "harder" ? ["B1", "B2", "C1"] : undefined;
   return {
-    choose: chooseItems(spec.choose, module, extras.choose || [], used.scripts, chooseCefr, seen),
-    conversations: pickUniqueThenFill(
+    choose: chooseItems(spec.choose, module, extras.choose || [], used.scripts, chooseCefr, seen, strict),
+    conversations: pickSpoken(
       convPool.length ? convPool : convAll,
       spec.conversations,
-      used.titles,
-      (s) => s.title,
+      used,
       seen,
-      (s) => seedKey("conversations", s),
+      strict,
+      "conversations",
     ).map((s, i) => toSpoken(s, module, i)),
-    announcements: pickUniqueThenFill(
-      annAll,
-      spec.announcements,
-      used.titles,
-      (s) => s.title,
-      seen,
-      (s) => seedKey("announcements", s),
-    ).map((s, i) => toSpoken(s, module, i + 1)),
-    talks: pickUniqueThenFill(
-      talkPool.length ? talkPool : talkAll,
-      spec.talks,
-      used.titles,
-      (s) => s.title,
-      seen,
-      (s) => seedKey("talks", s),
-    ).map((s, i) => toSpoken(s, module, i + 2)),
+    announcements: pickSpoken(annAll, spec.announcements, used, seen, strict, "announcements").map((s, i) =>
+      toSpoken(s, module, i + 1),
+    ),
+    talks: pickSpoken(talkPool.length ? talkPool : talkAll, spec.talks, used, seen, strict, "talks").map((s, i) =>
+      toSpoken(s, module, i + 2),
+    ),
   };
 }
 

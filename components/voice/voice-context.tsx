@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ACCENT_LABEL, ACCENTS, accentLangPrefixes, emptyAccentMap } from "@/lib/accents";
+import { clampVolume, speechVolume, VOLUME_MAX, VOLUME_MIN } from "@/lib/playback-gain";
 import type { Accent } from "@/lib/types";
 
 export type VoicePrefs = {
@@ -36,7 +37,7 @@ function loadPrefs(): VoicePrefs {
     };
     return {
       rate: typeof parsed.rate === "number" ? parsed.rate : DEFAULT.rate,
-      volume: typeof parsed.volume === "number" ? parsed.volume : DEFAULT.volume,
+      volume: typeof parsed.volume === "number" ? clampVolume(parsed.volume) : DEFAULT.volume,
       male: normalizeAccentMap(parsed.male),
       female: normalizeAccentMap(parsed.female),
     };
@@ -188,7 +189,7 @@ export function VolumeSlider({
       const gain = ctx.createGain();
       osc.type = "sine";
       osc.frequency.value = 440;
-      gain.gain.value = 0.08 * prefs.volume;
+      gain.gain.value = 0.08 * clampVolume(prefs.volume);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
@@ -202,7 +203,7 @@ export function VolumeSlider({
     );
     utter.lang = "en-US";
     utter.rate = prefs.rate;
-    utter.volume = prefs.volume;
+    utter.volume = speechVolume(prefs.volume);
     const voice = pickVoice("female", "us");
     if (voice) utter.voice = voice;
     utter.onend = () => setTesting(false);
@@ -216,12 +217,13 @@ export function VolumeSlider({
         <span>{label}</span>
         <input
           type="range"
-          min="0.2"
-          max="1"
+          min={VOLUME_MIN}
+          max={VOLUME_MAX}
           step="0.05"
           value={prefs.volume}
           onChange={(e) => setPrefs({ volume: Number(e.target.value) })}
         />
+        <span className="tabular-nums">{Math.round(prefs.volume * 100)}%</span>
       </label>
       {showTest && (
         <button

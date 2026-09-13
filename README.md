@@ -22,7 +22,7 @@ The first account you create should be **admin** (username `admin`). That accoun
 
 ## Taking a test
 
-1. Sign in and start a new test (easier / standard / harder). Standard matches the real exam mix.
+1. Sign in and start a new test (easier / standard / harder), or prepare one for later. Standard matches the real exam mix. A progress bar stays on screen while the app writes unused items and audio.
 2. The exam chrome is section name, question number, Help, Volume (with **Test volume**), Notes, clock, and Hide Time. The blue header stays on screen; long article/question screens scroll each pane separately.
 3. Reading: you may go back inside a module, then review and submit. After submit, that module is locked.
 4. Listening: each recording plays once. Choices appear when the audio ends. You cannot go back.
@@ -55,4 +55,4 @@ Accent voices can be assigned on review or settings. During the exam, only **Vol
 - Official ETS items and the Official Guide PDF are not used as content.
 - Allowed references: `doc/TOEFL_iBT_Comprehensive_Guide.pdf` and `doc/TOEFL iBT Academic Subjects and Vocabulary Topics.pdf`.
 - With an LLM key, each new test writes extra original items (checked, then saved to `data/item-bank.json`) so later papers reuse fewer stock passages.
-- A new test prefers items this student has not seen. Module 1 and Module 2 do not share daily texts, listen-and-choose scripts, or spoken sets. The unused Module 2 route may share leftovers with the other Module 2 route on purpose (only one is administered). Last-resort reuse happens only if the unused pool is empty. Accents are US / UK / Australia × male / female.
+- A new test is unused for that student. The app keeps writing original items until every slot is new; it does not reuse a seen question. The stored paper, including both Module 2 routes, may not repeat a passage, question stem, listen-and-choose script, dialogue line, or speaking sentence. Accents are US / UK / Australia × male / female.

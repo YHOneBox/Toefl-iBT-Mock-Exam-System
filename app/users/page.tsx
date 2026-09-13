@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AppShell } from "@/components/app-shell";
 import { GhostButton, PrimaryButton } from "@/components/ui";
 
 type UserRow = {
@@ -117,21 +118,27 @@ export default function UsersPage() {
     }
   }
 
-  if (allowed === false) return <div className="p-8">Only the admin account can manage users.</div>;
-  if (allowed === null) return <div className="p-8">Loading…</div>;
+  if (allowed === false) {
+    return (
+      <AppShell brandHref="/users">
+        <p>Only the admin account can manage users.</p>
+      </AppShell>
+    );
+  }
+  if (allowed === null) {
+    return (
+      <AppShell brandHref="/users">
+        <p className="muted">Loading…</p>
+      </AppShell>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-10">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Accounts</h1>
-          <p className="mt-2 text-sm leading-6 text-[#5b6775]">
-            The admin account only manages users. Create accounts, change passwords (including admin), or delete a
-            student and their tests. Admin cannot take a mock test.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/settings" className="rounded border px-3 py-2 text-sm">
+    <AppShell
+      brandHref="/users"
+      nav={
+        <>
+          <Link href="/settings" className="ui-link">
             Gemini models
           </Link>
           <GhostButton
@@ -143,7 +150,16 @@ export default function UsersPage() {
           >
             Sign out
           </GhostButton>
-        </div>
+        </>
+      }
+    >
+      <div className="mx-auto max-w-2xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">Accounts</h1>
+        <p className="muted mt-2 text-sm leading-6">
+          The admin account only manages users. Create accounts, change passwords (including admin), or delete a
+          student and their tests. Admin cannot take a mock test.
+        </p>
       </div>
 
       <form
@@ -159,7 +175,7 @@ export default function UsersPage() {
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="mt-1 w-full border px-3 py-2"
+            className="field mt-1"
             autoComplete="off"
           />
         </label>
@@ -169,7 +185,7 @@ export default function UsersPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full border px-3 py-2"
+            className="field mt-1"
             autoComplete="new-password"
           />
         </label>
@@ -181,7 +197,7 @@ export default function UsersPage() {
       {(error || status) && (
         <div className="mb-4 text-sm">
           {error && <p className="text-red-700">{error}</p>}
-          {status && <p className="text-[#1f4e79]">{status}</p>}
+          {status && <p className="text-[#0f766e]">{status}</p>}
         </div>
       )}
 
@@ -192,9 +208,9 @@ export default function UsersPage() {
               <div>
                 <div className="font-medium">
                   {user.username}
-                  {user.isAdmin ? <span className="ml-2 text-xs uppercase text-[#1f4e79]">Admin</span> : null}
+                  {user.isAdmin ? <span className="ml-2 text-xs font-bold uppercase text-[#c2410c]">Admin</span> : null}
                 </div>
-                <div className="mt-1 text-[#5b6775]">
+                <div className="muted mt-1">
                   {user.isAdmin
                     ? "Password only — this account cannot be deleted"
                     : `${user.testCount ?? 0} tests · ${user.attemptCount ?? 0} attempts`}
@@ -244,7 +260,7 @@ export default function UsersPage() {
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    className="mt-1 w-full border px-3 py-2"
+                    className="field mt-1"
                     autoComplete="new-password"
                   />
                 </label>
@@ -254,7 +270,7 @@ export default function UsersPage() {
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="mt-1 w-full border px-3 py-2"
+                    className="field mt-1"
                     autoComplete="new-password"
                   />
                 </label>
@@ -288,6 +304,7 @@ export default function UsersPage() {
           </div>
         ))}
       </div>
-    </div>
+      </div>
+    </AppShell>
   );
 }

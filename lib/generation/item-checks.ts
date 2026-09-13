@@ -104,6 +104,8 @@ export function checkSpokenSeed(seed: SpokenSeed): string[] {
   }
   if (!seed.title || !seed.topic) errors.push("Spoken seed missing title or topic");
   if (!seed.speakers.length || !seed.script.length) errors.push("Spoken seed missing speakers or script");
+  const lineKeys = seed.script.map((line) => normalizeText(line.text)).filter(Boolean);
+  if (new Set(lineKeys).size !== lineKeys.length) errors.push("Spoken seed has duplicate lines");
   const need = seed.taskType === "listen_academic_talk" ? 4 : 2;
   if (seed.questions.length !== need) errors.push(`${seed.taskType} needs ${need} questions`);
   const stimulus = seed.script.map((line) => line.text).join(" ");
@@ -132,6 +134,9 @@ export function checkRepeatSeed(seed: RepeatSeed): string[] {
   const errors: string[] = [];
   if (!seed.scenario || !seed.setting) errors.push("Repeat missing scenario");
   if (seed.sentences.length !== 7) errors.push("Repeat needs 7 sentences");
+  if (new Set(seed.sentences.map((s) => normalizeText(s))).size !== seed.sentences.length) {
+    errors.push("Repeat has duplicate sentences");
+  }
   const lengths = seed.sentences.map((s) => wordCount(s));
   if (lengths.some((n) => n < 4 || n > 28)) errors.push("Repeat sentence length out of range");
   return errors;
@@ -141,5 +146,8 @@ export function checkInterviewSeed(seed: InterviewSeed): string[] {
   const errors: string[] = [];
   if (!seed.scenario || !seed.interviewer) errors.push("Interview missing scenario");
   if (seed.questions.length !== 4) errors.push("Interview needs 4 questions");
+  if (new Set(seed.questions.map((q) => normalizeText(q))).size !== seed.questions.length) {
+    errors.push("Interview has duplicate prompts");
+  }
   return errors;
 }

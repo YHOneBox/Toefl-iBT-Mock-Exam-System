@@ -7,18 +7,20 @@ export function PrimaryButton({
   onClick,
   disabled,
   type = "button",
+  tone = "primary",
 }: {
   children: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   type?: "button" | "submit";
+  tone?: "primary" | "accent";
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="whitespace-nowrap rounded bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+      className={`ui-btn ${tone === "accent" ? "ui-accent" : "ui-primary"}`}
     >
       {children}
     </button>
@@ -35,12 +37,7 @@ export function GhostButton({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded border border-[#9aa8b5] bg-white px-4 py-2 text-sm text-[#1b2430] disabled:opacity-50"
-    >
+    <button type="button" onClick={onClick} disabled={disabled} className="ui-btn ui-ghost">
       {children}
     </button>
   );

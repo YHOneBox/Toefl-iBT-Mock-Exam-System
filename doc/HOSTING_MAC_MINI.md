@@ -23,6 +23,7 @@ In PowerShell, from the project folder:
 Compress-Archive -Path "data\toefl.db","data\app-settings.json","data\audio","data\recordings" -DestinationPath "toefl-local-data.zip" -Force
 if (Test-Path "data\item-bank.json") { Compress-Archive -Path "data\item-bank.json" -DestinationPath "toefl-local-data.zip" -Update }
 if (Test-Path "data\seen-items.json") { Compress-Archive -Path "data\seen-items.json" -DestinationPath "toefl-local-data.zip" -Update }
+if (Test-Path "data\prep-jobs.json") { Compress-Archive -Path "data\prep-jobs.json" -DestinationPath "toefl-local-data.zip" -Update }
 ```
 
 Copy **both** of these to the Mac Mini (USB, AirDrop, or a private folder — not GitHub):

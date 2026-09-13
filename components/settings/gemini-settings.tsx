@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { AppShell } from "../app-shell";
 import { GhostButton, PrimaryButton } from "../ui";
 
 type Model = {
@@ -156,23 +157,25 @@ export function GeminiSettings() {
   );
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Gemini model fallback</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5b6775]">
-            Scanned models and the fallback order are both stored. Drag rows to change try order. If a model
-            hits a timeout, quota, or rate limit, the next selected model is used. OpenAI remains the last
-            fallback if it is configured.
-          </p>
-        </div>
-        <Link href={homeHref} className="rounded border px-3 py-2 text-sm">
+    <AppShell
+      brandHref={homeHref}
+      nav={
+        <Link href={homeHref} className="ui-link">
           {homeHref === "/users" ? "Accounts" : "Main page"}
         </Link>
+      }
+    >
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">Gemini model fallback</h1>
+        <p className="muted mt-2 max-w-2xl text-sm leading-6">
+          Scanned models and the fallback order are both stored. Drag rows to change try order. If a model
+          hits a timeout, quota, or rate limit, the next selected model is used. OpenAI remains the last
+          fallback if it is configured.
+        </p>
       </div>
 
       {!keyPresent && (
-        <div className="panel mb-4 p-4 text-sm text-red-800">
+        <div className="app-notice-warn panel mb-4 p-4 text-sm text-red-900">
           GEMINI_API_KEY is missing in .env. Add it, restart the app, then scan.
         </div>
       )}
@@ -186,16 +189,16 @@ export function GeminiSettings() {
         </GhostButton>
       </div>
 
-      {status && <p className="mb-3 text-sm text-[#1f4e79]">{status}</p>}
+      {status && <p className="mb-3 text-sm text-[#0f766e]">{status}</p>}
       {error && <p className="mb-3 text-sm text-red-700">{error}</p>}
       {settings?.lastUsed && (
-        <p className="mb-3 text-sm text-[#5b6775]">
+        <p className="muted mb-3 text-sm">
           Last used: {settings.lastUsed}
           {settings.lastError ? ` · Last error: ${settings.lastError}` : ""}
         </p>
       )}
       {settings?.scannedAt && (
-        <p className="mb-3 text-sm text-[#5b6775]">
+        <p className="muted mb-3 text-sm">
           Stored available models: {settings.available?.length || 0} · last scan{" "}
           {new Date(settings.scannedAt).toLocaleString()}
         </p>
@@ -204,7 +207,7 @@ export function GeminiSettings() {
       {chain.length > 0 && (
         <div className="panel mb-6 p-4">
           <h2 className="mb-2 font-semibold">Fallback order</h2>
-          <p className="mb-3 text-xs text-[#5b6775]">Drag a row to reorder, or use Up / Down.</p>
+          <p className="muted mb-3 text-xs">Drag a row to reorder, or use Up / Down.</p>
           <ol className="space-y-2">
             {selectedModels.map((model, i) => (
               <li
@@ -214,14 +217,14 @@ export function GeminiSettings() {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => dropOn(model.id)}
                 onDragEnd={() => setDragId(null)}
-                className={`flex cursor-grab items-center justify-between gap-3 rounded border bg-white px-3 py-2 text-sm active:cursor-grabbing ${
-                  dragId === model.id ? "border-[#1f4e79] bg-[#e8f1fb]" : "border-[#d5dbe3]"
+                className={`flex cursor-grab items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2 text-sm active:cursor-grabbing ${
+                  dragId === model.id ? "border-[#0f766e] bg-[#ecfdf7]" : "border-[#d4ddd8]"
                 }`}
               >
                 <div>
-                  <span className="mr-2 text-[#5b6775]">{i + 1}.</span>
-                  <span className="mr-2 text-[#9aa8b5]">⋮⋮</span>
-                  {model.displayName} <span className="text-[#5b6775]">({model.id})</span>
+                  <span className="muted mr-2">{i + 1}.</span>
+                  <span className="mr-2 text-[#8aa39c]">⋮⋮</span>
+                  {model.displayName} <span className="muted">({model.id})</span>
                 </div>
                 <div className="flex gap-2">
                   <GhostButton onClick={() => move(model.id, -1)}>Up</GhostButton>
@@ -249,16 +252,16 @@ export function GeminiSettings() {
                 <div className="font-medium">
                   {model.displayName}
                   {model.recommended ? (
-                    <span className="ml-2 text-xs uppercase text-[#1f4e79]">Recommended</span>
+                    <span className="ml-2 text-xs font-bold uppercase text-[#c2410c]">Recommended</span>
                   ) : null}
                 </div>
-                <div className="text-[#5b6775]">{model.id}</div>
-                <div className="mt-1 text-[#5b6775]">{model.reason}</div>
+                <div className="muted">{model.id}</div>
+                <div className="muted mt-1">{model.reason}</div>
               </div>
             </label>
           ))}
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

@@ -12,8 +12,9 @@ This file describes the **item pipeline** for a new enhanced TOEFL iBT paper in 
 
 **What “Start new test” means**
 
-- **New test** (`/api/generate`) always builds a **new form** for that student: new IDs, a new `TestForm` row, and a selection that prefers items the student has not seen.
-- With an LLM key, the system also **writes a new batch of original items** before the paper is assembled, then saves accepted items to `data/item-bank.json`.
+- **New test** (`/api/generate`) starts a **prep job** with a progress bar. It writes original items and assembles a paper that contains **no fingerprints this student has already seen**.
+- The job keeps generating until the unused pool is large enough. It does **not** fall back to repeating old items. If there is no API key and the unused bank is empty, preparation fails instead of reusing.
+- You can **prepare for later**: the paper and audio are stored with no sitting. Start it later with no wait.
 - **Retake** and **Redo** reuse an existing form on purpose (same questions, new sitting). That is not a new test.
 
 ---
@@ -21,43 +22,41 @@ This file describes the **item pipeline** for a new enhanced TOEFL iBT paper in 
 ## End-to-end pipeline
 
 ```
-Student clicks Start new test
+Student clicks Start when ready  or  Prepare for later
         │
         ▼
-createNewTest(userId, difficulty)          lib/sessions.ts
-        │
+POST /api/generate  →  prep job (data/prep-jobs.json)
+        │  UI polls GET /api/generate  for progress
         ▼
-generateFormPayload(difficulty, userId)    lib/generation/index.ts
+generateFormPayload(difficulty, userId, onProgress)
         │
         ├─ Load this student's seen fingerprints
         │     data/seen-items.json
-        │     if empty, backfill from that user's stored TestForm payloads
+        │     always union with every TestForm this user already has
         │
         ├─ Load grown bank
         │     data/item-bank.json  +  handmade seeds in bank-*.ts
         │
-        ├─ Assemble a valid local paper (avoid seen items when extras exist)
-        │
         ├─ If GEMINI_API_KEY or OPENAI_API_KEY is set
-        │     ├─ createFreshItems()   parallel LLM batches  lib/generation/llm-create.ts
-        │     │     retrieve subjects/campus cues from vocab-pack.ts
-        │     │     validate each seed in item-checks.ts
-        │     │     keep any item that passes (partial batches are OK)
-        │     ├─ appendGrownBank()    save extras to item-bank.json
-        │     ├─ assemble again, preferring the newest extras
-        │     └─ enrichWithLlm()      rewrite email + academic discussion
+        │     createFreshItems()   parallel LLM batches
         │
-        ├─ validateForm()             counts, CTW rules, M1 vs M2 uniqueness
-        ├─ rememberSeen()             store fingerprints for this user
+        ├─ Assemble with strict unseen pickers
+        │     if any slot would reuse a seen item, write another LLM batch
+        │     repeat until a valid unused paper exists (or fail if no key)
+        │
+        ├─ enrichWithLlm()      unused email + academic discussion
+        ├─ validateForm()       counts, CTW rules, full-form uniqueness
+        │                       (audio, passages, stems, both Module 2 routes)
         ▼
 Save TestForm.payloadJson
         │
         ▼
-attachFormAudio()                  lib/generation/audio-fill.ts
-        │  TTS per listen-choose clip, per dialogue line, and speaking prompts
-        │  Accents: US / UK / Australia × male / female
+attachFormAudio()                  progress per clip
+        │
+        ├─ rememberSeen()
         ▼
-Create exam session (check-in)
+intent=start  →  create exam session (check-in)
+intent=prepare →  leave the form unused until the student starts it
 ```
 
 Difficulty (`easier` / `standard` / `harder`) only changes CEFR bands and Module 2 mix. It does not change the task list.
@@ -66,30 +65,33 @@ Difficulty (`easier` / `standard` / `harder`) only changes CEFR bands and Module
 
 ## Uniqueness rules
 
-### Inside one sitting (what the student actually takes)
+The stored paper is unique **as a whole**, including the unused Module 2 route. That route is still synthesized, and leftover overlap used to replay the same audio if routing later chose the other path, or if two spoken sets shared a script under different titles.
 
-| Rule | Intentional? |
+### Inside one stored paper (both Module 2 routes)
+
+| Rule | Required |
 | --- | --- |
-| Four Complete the Words passages on the stored form are all different (Module 1 twice + both Module 2 routes). | Yes — required. |
-| Module 1 daily-life titles, listen-and-choose scripts, and spoken-set titles must not appear in **Module 2 lower** or **Module 2 upper**. | Yes — required. Validated in `lib/generation/validate.ts`. |
-| **Module 2 lower and Module 2 upper may share leftovers.** | **Yes, on purpose.** Both routes are generated so routing can choose after Module 1. The student takes only one Module 2. Sharing unused leftovers keeps the bank from emptying. |
-| Ten Build a Sentence items on one paper are distinct exchanges when the pool is large enough. | Yes. |
-| One email and one discussion per paper. | Yes. |
+| Four Complete the Words passages are all different. | Yes |
+| Daily-life and academic **texts** (not only titles) are unique across Module 1, Module 2 lower, and Module 2 upper. | Yes |
+| Every listen-and-choose **script**, conversation/announcement/talk **line**, listen-and-repeat sentence, and interview prompt is unique. A choose line may not reappear inside a dialogue. | Yes |
+| Spoken sets are unique by **full joined script**, not by title. | Yes |
+| Build a Sentence exchanges, email scenario, discussion prompt, and speaking scenarios are unique on the paper. Question stems must be unique **inside the same set** (generic stems such as “main idea” may repeat across sets). | Yes |
+| Two clips that share the same first 96 normalized characters are treated as the same opening and rejected. | Yes |
+| Audio fill refuses to synthesize the same script twice. | Yes |
 
-The student never sits both Module 2 routes in the same attempt, so leftover overlap between those two unused-or-alternate papers is not a repeated exam item.
+Checks live in `lib/generation/uniqueness.ts` and run from `validateForm()` after assemble, after enrich, and again before TTS.
 
 ### Across new tests for the same student
 
-Fingerprints are stored per user in `data/seen-items.json` (gitignored). Keys are short normalized hashes of passage text, titles, scripts, sentence exchanges, email scenarios, discussion prompts, and speaking scenarios (`lib/generation/history.ts`).
+Fingerprints are stored per user in `data/seen-items.json` (gitignored). Keys are the **full normalized text** of passages, scripts, lines, exchanges, and speaking sentences, plus the older 96-character prefix so earlier papers still match (`lib/generation/history.ts`, `lib/generation/content-key.ts`).
 
-When a new test is assembled, pickers **prefer unused extras, then unused seeds**, and **newest grown-bank items first**.
+`seenForUser` always unions the file with every TestForm that user already has. Pickers then skip any item whose full text or legacy prefix is in that set.
 
-**Last-resort reuse:** if the unused pool is empty (no LLM key, or the student has exhausted the bank), the assembler fills from the full seed list so the paper still validates. That is the only time a student can see a previous item again. The markdown and the code treat that as fallback, not as a feature.
+If a slot cannot be filled without reuse, the job **writes more original items** and tries again. It does not fall back to a seen item. Without an LLM key, preparation fails when the unused pool is too small. A failed job never saves a paper.
 
 ### What is *not* treated as a repeat
 
 - **Retake / Redo** of the same form (same questions by design).
-- The **unused** Module 2 route sitting in the stored JSON (the student did not take it).
 - The same *topic family* (for example two campus-library items) with different wording.
 
 ---
@@ -153,7 +155,8 @@ Audio is still TTS, not studio recordings. Academic talks play slower than campu
 
 | File | Role |
 | --- | --- |
-| `lib/generation/index.ts` | Orchestrates assemble → LLM create → enrich → validate → remember |
+| `lib/generation/index.ts` | Orchestrates LLM create → strict assemble loop → enrich → validate |
+| `lib/generation/jobs.ts` | Background prep jobs and progress |
 | `lib/generation/llm-create.ts` | Parallel JSON batches for almost every task type |
 | `lib/generation/llm-enrich.ts` | Email + discussion rewrite |
 | `lib/generation/item-checks.ts` | Reject bad LLM seeds |
@@ -164,7 +167,9 @@ Audio is still TTS, not studio recordings. Academic talks play slower than campu
 | `lib/generation/ctw.ts` | Gap-cutting algorithm |
 | `lib/generation/vocab-pack.ts` | Retrieved subjects, campus contexts, writing rules |
 | `lib/generation/grown-bank.ts` | `data/item-bank.json` fingerprints and caps |
-| `lib/generation/history.ts` | Per-user seen store |
-| `lib/generation/validate.ts` | Paper-level counts and M1/M2 uniqueness |
-| `lib/generation/audio-fill.ts` | TTS jobs |
+| `lib/generation/content-key.ts` | Full-text keys and legacy fingerprint matching |
+| `lib/generation/uniqueness.ts` | Paper-level duplicate audio / text / stem checks |
+| `lib/generation/history.ts` | Per-user seen store (file + all stored forms) |
+| `lib/generation/validate.ts` | Paper-level counts and uniqueness |
+| `lib/generation/audio-fill.ts` | TTS jobs; refuses duplicate scripts |
 | `lib/sessions.ts` | Persist form, then start the sitting |

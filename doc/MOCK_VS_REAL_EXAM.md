@@ -134,12 +134,12 @@ Not an ability estimate. Items are not IRT-weighted.
 
 ### C. Growing original bank
 
-Handmade seed bank is still small. On **Start new test**, if a Gemini/OpenAI key is set, the system retrieves subjects and campus contexts from `content/constraints/subjects-vocab.md`, generates extra CTW / daily / academic / listen-choose / talks / conversations / sentences / speaking seeds, rejects items that fail word counts, gap counts, or paraphrase checks, and appends accepted items to `data/item-bank.json`. Later papers prefer those saved items **and skip fingerprints this student already sat**. Complete the Words texts are unique across Module 1 and both Module 2 variants. Listening Module 2 avoids Module 1 titles and scripts. Module 2 lower and upper may share leftovers on purpose. Full pipeline: [QUESTION_GENERATION.md](QUESTION_GENERATION.md).
+Handmade seed bank is still small. On **Start new test**, if a Gemini/OpenAI key is set, the system retrieves subjects and campus contexts from `content/constraints/subjects-vocab.md`, generates extra CTW / daily / academic / listen-choose / talks / conversations / sentences / speaking seeds, rejects items that fail word counts, gap counts, or paraphrase checks, and appends accepted items to `data/item-bank.json`. Later papers prefer those saved items **and skip fingerprints this student already sat**. The stored paper, including both Module 2 routes, cannot repeat a passage, listen-and-choose script, dialogue line, or speaking sentence. Full pipeline: [QUESTION_GENERATION.md](QUESTION_GENERATION.md).
 
 | Bank | Starting size | Per full form |
 | --- | ---: | ---: |
 | CTW passages | 6 + grown | 4 unique |
-| Daily-life texts | 8 + grown | 8 (M2 variants may share leftovers) |
+| Daily-life texts | 8 + grown | 8 unique across both Module 2 routes |
 | Academic passages | few + grown | 1 (M1 only) |
 | Listen-and-choose | ~27 + grown | 16+5+5 |
 | Conversations / announcements / talks | 8 / 4 / 3 + grown | 8 / 4 / 3 |

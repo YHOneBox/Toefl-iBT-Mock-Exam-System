@@ -2,14 +2,20 @@ import { prisma } from "./db";
 import { firstPointer, nextPointer } from "./flow";
 import { parseForm } from "./form";
 import { attachFormAudio } from "./generation/audio-fill";
-import { generateFormPayload } from "./generation";
+import { generateFormPayload, type GenerateProgress } from "./generation";
+import { fingerprintsFromForm, labelsFromForm, rememberSeen } from "./generation/history";
 import { routeFromAccuracy, scoreListeningModule, scoreReadingModule } from "./adaptive";
 import { parseScope } from "./scope";
 import { durationForPointer } from "./timing";
 import type { ExamDifficulty, Pointer, RouteLevel, ScopePart, SessionMode } from "./types";
 
-export async function createNewTest(userId: string, difficulty: ExamDifficulty = "standard") {
-  const payload = await generateFormPayload(difficulty, userId);
+export async function createPreparedForm(
+  userId: string,
+  difficulty: ExamDifficulty = "standard",
+  onProgress?: GenerateProgress,
+) {
+  const payload = await generateFormPayload(difficulty, userId, onProgress);
+  onProgress?.({ progress: 76, stage: "Saving the unused paper" });
   const form = await prisma.testForm.create({
     data: {
       topicTags: JSON.stringify(payload.topics),
@@ -18,11 +24,28 @@ export async function createNewTest(userId: string, difficulty: ExamDifficulty =
       userId,
     },
   });
-  const withAudio = await attachFormAudio(form.id, payload);
-  await prisma.testForm.update({
-    where: { id: form.id },
-    data: { payloadJson: JSON.stringify(withAudio) },
-  });
+  try {
+    const withAudio = await attachFormAudio(form.id, payload, (done, total) => {
+      const ratio = total ? done / total : 1;
+      onProgress?.({
+        progress: 78 + Math.round(ratio * 18),
+        stage: `Creating audio ${done} / ${total}`,
+      });
+    });
+    await prisma.testForm.update({
+      where: { id: form.id },
+      data: { payloadJson: JSON.stringify(withAudio) },
+    });
+    rememberSeen(userId, fingerprintsFromForm(withAudio), labelsFromForm(withAudio));
+    return form;
+  } catch (err) {
+    await prisma.testForm.delete({ where: { id: form.id } }).catch(() => undefined);
+    throw err;
+  }
+}
+
+export async function createNewTest(userId: string, difficulty: ExamDifficulty = "standard") {
+  const form = await createPreparedForm(userId, difficulty);
   return createSession({
     formId: form.id,
     mode: "new",
