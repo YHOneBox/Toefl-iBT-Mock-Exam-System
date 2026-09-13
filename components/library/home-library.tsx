@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { appPath } from "@/lib/base-path";
 import { DIFFICULTY_OPTIONS, difficultyLabel } from "@/lib/generation/difficulty";
 import { allScopeOptions, describeScope } from "@/lib/scope";
 import type { ExamDifficulty, ScopePart } from "@/lib/types";
@@ -9,17 +11,43 @@ import { AppShell } from "../app-shell";
 import { GhostButton, PrimaryButton } from "../ui";
 import { AttemptScoreSummary, LibraryOverview, type DashboardForm } from "./results-dashboard";
 
+type PrepLogEntry = {
+  at: string;
+  progress: number;
+  stage: string;
+  detail?: string;
+};
+
 type PrepJob = {
   id: string;
   difficulty?: string;
   intent: "start" | "prepare";
-  status: "queued" | "running" | "ready" | "failed";
+  status: "queued" | "running" | "ready" | "failed" | "cancelled";
   progress: number;
   stage: string;
+  detail?: string;
+  log?: PrepLogEntry[];
   formId?: string;
   sessionId?: string;
   error?: string;
+  deadlineAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
+
+function elapsedLabel(iso?: string) {
+  if (!iso) return "";
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
+function remainingLabel(deadlineAt?: string) {
+  if (!deadlineAt) return "";
+  const seconds = Math.max(0, Math.floor((Date.parse(deadlineAt) - Date.now()) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
 
 export function HomeLibrary() {
   const router = useRouter();
@@ -35,21 +63,24 @@ export function HomeLibrary() {
   const [username, setUsername] = useState<string | null>(null);
   const [startOpen, setStartOpen] = useState(false);
   const [difficulty, setDifficulty] = useState<ExamDifficulty>("standard");
+  const [jobLimitMs, setJobLimitMs] = useState(12 * 60 * 1000);
+  const [nowTick, setNowTick] = useState(0);
   const busy = jobs.some((job) => job.status === "queued" || job.status === "running");
   const waitJob = jobs.find((job) => job.id === waitStartId) || jobs.find((job) => job.intent === "start" && (job.status === "queued" || job.status === "running"));
 
   async function refresh() {
-    const res = await fetch("/api/library", { cache: "no-store" });
+    const res = await fetch(appPath("/api/library"), { cache: "no-store" });
     const data = (await res.json()) as { forms: DashboardForm[] };
     setForms(data.forms);
   }
 
   async function loadJobs() {
-    const res = await fetch("/api/generate", { cache: "no-store" });
-    const data = (await res.json()) as { jobs?: PrepJob[]; llmReady?: boolean };
+    const res = await fetch(appPath("/api/generate"), { cache: "no-store" });
+    const data = (await res.json()) as { jobs?: PrepJob[]; llmReady?: boolean; jobLimitMs?: number };
     const next = data.jobs || [];
     setJobs(next);
     if (typeof data.llmReady === "boolean") setLlmReady(data.llmReady);
+    if (typeof data.jobLimitMs === "number" && data.jobLimitMs > 0) setJobLimitMs(data.jobLimitMs);
     return next;
   }
 
@@ -64,7 +95,7 @@ export function HomeLibrary() {
         setStartOpen(true);
       }
     });
-    fetch("/api/auth/me", { cache: "no-store" })
+    fetch(appPath("/api/auth/me"), { cache: "no-store" })
       .then((r) => r.json())
       .then((data: { user?: { username?: string } | null }) => {
         if (data.user?.username) setUsername(data.user.username);
@@ -75,6 +106,7 @@ export function HomeLibrary() {
   useEffect(() => {
     if (!busy) return;
     const timer = window.setInterval(() => {
+      setNowTick((n) => n + 1);
       void loadJobs();
     }, 1000);
     return () => window.clearInterval(timer);
@@ -88,6 +120,10 @@ export function HomeLibrary() {
     }
     if (job?.status === "failed") {
       setError(job.error || "Preparation failed");
+      setWaitStartId(null);
+    }
+    if (job?.status === "cancelled") {
+      setError(job.error || "Preparation stopped");
       setWaitStartId(null);
     }
     if (job?.status === "ready" && job.formId && !job.sessionId) {
@@ -112,7 +148,7 @@ export function HomeLibrary() {
   async function startJob(intent: "start" | "prepare") {
     setError(null);
     try {
-      const res = await fetch("/api/generate", {
+      const res = await fetch(appPath("/api/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ difficulty, intent }),
@@ -132,6 +168,55 @@ export function HomeLibrary() {
     }
   }
 
+  async function stopJob(jobId: string) {
+    setError(null);
+    try {
+      const res = await fetch(appPath(`/api/generate/${jobId}`), { method: "DELETE" });
+      const data = (await res.json()) as { job?: PrepJob; error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not stop preparation");
+      if (data.job) setJobs((prev) => prev.map((row) => (row.id === jobId ? data.job! : row)));
+      if (waitStartId === jobId) setWaitStartId(null);
+      void loadJobs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not stop preparation");
+    }
+  }
+
+  function renderJobProgress(job: PrepJob) {
+    const active = job.status === "queued" || job.status === "running";
+    const steps = (job.log || []).slice(-6).reverse();
+    return (
+      <div className="mt-3">
+        {job.detail && <p className="muted text-sm">{job.detail}</p>}
+        {active && (
+          <>
+            <div className="app-progress mt-3" aria-label={`${job.progress} percent`}>
+              <span style={{ width: `${Math.max(4, Math.min(100, job.progress))}%` }} />
+            </div>
+            <p className="muted mt-2 text-xs">
+              {job.progress}% · {elapsedLabel(job.createdAt) || "just started"}
+              {job.deadlineAt ? ` · stops in ${remainingLabel(job.deadlineAt)}` : ` · stops after ${Math.round(jobLimitMs / 60000)} minutes`}
+              <span className="sr-only">{nowTick}</span>
+            </p>
+          </>
+        )}
+        {steps.length > 0 && (
+          <ol className="muted mt-3 space-y-1 text-xs">
+            {steps.map((step, index) => (
+              <li key={`${step.at}-${step.stage}-${index}`}>
+                {index === 0 ? "Now: " : ""}
+                {step.stage}
+                {step.detail ? ` — ${step.detail}` : ""}
+              </li>
+            ))}
+          </ol>
+        )}
+        {job.status === "failed" && job.error && <p className="mt-2 text-sm text-red-700">{job.error}</p>}
+        {job.status === "cancelled" && <p className="mt-2 text-sm text-[#5b6775]">{job.error || "Stopped."}</p>}
+      </div>
+    );
+  }
+
   async function startSession(body: {
     formId: string;
     mode: "new" | "retake" | "redo";
@@ -139,7 +224,7 @@ export function HomeLibrary() {
     sourceSessionId?: string;
     allowReadapt?: boolean;
   }) {
-    const res = await fetch("/api/sessions", {
+    const res = await fetch(appPath("/api/sessions"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -154,13 +239,13 @@ export function HomeLibrary() {
       nav={
         <>
           {username && <span className="mr-1 text-sm text-[#d7efe8]">{username}</span>}
-          <a href="/settings" className="ui-link">
+          <Link href="/settings" className="ui-link">
             Gemini models
-          </a>
+          </Link>
           <GhostButton
             onClick={() => {
-              void fetch("/api/auth/logout", { method: "POST" }).then(() => {
-                window.location.href = "/login";
+              void fetch(appPath("/api/auth/logout"), { method: "POST" }).then(() => {
+                window.location.href = appPath("/login");
               });
             }}
           >
@@ -175,45 +260,53 @@ export function HomeLibrary() {
       <div className="mb-8">
         <h1 className="text-3xl font-semibold tracking-tight">Your practice library</h1>
         <p className="muted mt-2 max-w-2xl text-sm leading-6">
-          Every new paper is unused for you. The app keeps writing original items until nothing repeats, then builds
-          audio. Prepare a test in advance if you do not want to wait when you sit down. The live exam still uses the
-          navy sitting screens.
+          Every new paper is unused for you. The app writes original items, assembles the paper, then builds audio.
+          A typical paper takes 2–6 minutes. It stops itself after {Math.round(jobLimitMs / 60000)} minutes, and you
+          can stop it any time. Prepare a test in advance if you do not want to wait when you sit down.
         </p>
       </div>
 
       {jobs
-        .filter(
-          (job) =>
-            job.status === "queued" ||
-            job.status === "running" ||
-            (job.status === "ready" &&
-              job.intent === "prepare" &&
-              job.formId &&
-              !forms.some((form) => form.id === job.formId)),
-        )
+        .filter((job) => {
+          if (job.status === "queued" || job.status === "running") return true;
+          if (job.status === "ready" && job.intent === "prepare" && job.formId && !forms.some((form) => form.id === job.formId)) {
+            return true;
+          }
+          if (job.status === "failed" || job.status === "cancelled") {
+            return !job.updatedAt || Date.now() - Date.parse(job.updatedAt) < 30 * 60 * 1000;
+          }
+          return false;
+        })
         .map((job) => (
           <div key={job.id} className="app-notice panel mb-4 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-semibold">
-                  {job.intent === "prepare" ? "Preparing a test for later" : "Preparing a new test"}
+                  {job.status === "failed"
+                    ? "Preparation failed"
+                    : job.status === "cancelled"
+                      ? "Preparation stopped"
+                      : job.intent === "prepare"
+                        ? "Preparing a test for later"
+                        : "Preparing a new test"}
                   {job.difficulty ? ` · ${difficultyLabel(job.difficulty)}` : ""}
                 </p>
                 <p className="muted mt-1 text-sm">{job.stage}</p>
               </div>
-              {job.status === "ready" && job.formId && (
-                <PrimaryButton
-                  onClick={() => void startSession({ formId: job.formId!, mode: "new", scope: ["full"] })}
-                >
-                  Start this paper
-                </PrimaryButton>
-              )}
-            </div>
-            {job.status !== "ready" && (
-              <div className="app-progress mt-3" aria-label={`${job.progress} percent`}>
-                <span style={{ width: `${Math.max(4, Math.min(100, job.progress))}%` }} />
+              <div className="flex flex-wrap gap-2">
+                {job.status === "ready" && job.formId && (
+                  <PrimaryButton
+                    onClick={() => void startSession({ formId: job.formId!, mode: "new", scope: ["full"] })}
+                  >
+                    Start this paper
+                  </PrimaryButton>
+                )}
+                {(job.status === "queued" || job.status === "running") && (
+                  <GhostButton onClick={() => void stopJob(job.id)}>Stop</GhostButton>
+                )}
               </div>
-            )}
+            </div>
+            {renderJobProgress(job)}
           </div>
         ))}
       {error && <div className="mb-4 text-sm text-red-700">{error}</div>}
@@ -333,9 +426,10 @@ export function HomeLibrary() {
           <div className="panel w-full max-w-xl p-6">
             <h2 className="mb-2 text-xl font-semibold">New unused test</h2>
             <p className="muted mb-4 text-sm leading-6">
-              The app will not reuse a question you have already seen. It keeps writing original items until the whole
-              paper is new, then creates audio. That can take several minutes. Prepare for later if you want the wait
-              to happen now and the sitting to start instantly next time.
+              The app will not reuse a question you have already seen. It writes original items, builds the unused
+              paper, then creates audio. That usually takes 2–6 minutes and stops automatically after{" "}
+              {Math.round(jobLimitMs / 60000)} minutes. You can stop it any time. Prepare for later if you want the
+              wait to happen now and the sitting to start instantly next time.
             </p>
             {!llmReady && (
               <p className="app-notice-warn mb-4 rounded-xl p-3 text-sm">
@@ -346,10 +440,7 @@ export function HomeLibrary() {
             {waitJob && (waitJob.status === "queued" || waitJob.status === "running") ? (
               <div className="mb-4">
                 <p className="text-sm font-semibold">{waitJob.stage}</p>
-                <div className="app-progress mt-3" aria-label={`${waitJob.progress} percent`}>
-                  <span style={{ width: `${Math.max(4, Math.min(100, waitJob.progress))}%` }} />
-                </div>
-                <p className="muted mt-2 text-xs">{waitJob.progress}% · you can leave this open</p>
+                {renderJobProgress(waitJob)}
               </div>
             ) : (
               <div className="space-y-2">
@@ -377,6 +468,9 @@ export function HomeLibrary() {
               <GhostButton onClick={() => setStartOpen(false)}>
                 {waitJob ? "Hide" : "Cancel"}
               </GhostButton>
+              {waitJob && (waitJob.status === "queued" || waitJob.status === "running") && (
+                <GhostButton onClick={() => void stopJob(waitJob.id)}>Stop preparing</GhostButton>
+              )}
               {!waitJob && (
                 <>
                   <GhostButton disabled={busy} onClick={() => void startJob("prepare")}>

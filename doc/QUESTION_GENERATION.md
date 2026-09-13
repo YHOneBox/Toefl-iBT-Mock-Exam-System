@@ -13,7 +13,8 @@ This file describes the **item pipeline** for a new enhanced TOEFL iBT paper in 
 **What “Start new test” means**
 
 - **New test** (`/api/generate`) starts a **prep job** with a progress bar. It writes original items and assembles a paper that contains **no fingerprints this student has already seen**.
-- The job keeps generating until the unused pool is large enough. It does **not** fall back to repeating old items. If there is no API key and the unused bank is empty, preparation fails instead of reusing.
+- The job keeps generating until the unused pool is large enough, **or** until a hard stop. It does **not** fall back to repeating old items. If there is no API key and the unused bank is empty, preparation fails instead of reusing.
+- **Stops:** you can press **Stop** on the dashboard. A job also stops if it runs longer than **12 minutes**, if it goes **4 minutes** without a progress update, or if the same missing item type fails **4** focused LLM retries (max **8** assemble rounds). A stopped or failed job never saves a paper.
 - You can **prepare for later**: the paper and audio are stored with no sitting. Start it later with no wait.
 - **Retake** and **Redo** reuse an existing form on purpose (same questions, new sitting). That is not a new test.
 
@@ -26,9 +27,10 @@ Student clicks Start when ready  or  Prepare for later
         │
         ▼
 POST /api/generate  →  prep job (data/prep-jobs.json)
-        │  UI polls GET /api/generate  for progress
+        │  UI polls GET /api/generate  for stage, detail, log, %
+        │  DELETE /api/generate/:jobId  cancels the running job
         ▼
-generateFormPayload(difficulty, userId, onProgress)
+generateFormPayload(difficulty, userId, onProgress, { signal })
         │
         ├─ Load this student's seen fingerprints
         │     data/seen-items.json
@@ -37,21 +39,23 @@ generateFormPayload(difficulty, userId, onProgress)
         ├─ Load grown bank
         │     data/item-bank.json  +  handmade seeds in bank-*.ts
         │
-        ├─ If GEMINI_API_KEY or OPENAI_API_KEY is set
-        │     createFreshItems()   parallel LLM batches
+        ├─ Assemble from unused handmade + grown-bank items first
+        │     no Gemini call if a unique paper can already be built
         │
-        ├─ Assemble with strict unseen pickers
-        │     if any slot would reuse a seen item, write another LLM batch
-        │     repeat until a valid unused paper exists (or fail if no key)
+        ├─ If a slot is missing and an API key is set
+        │     createFreshItems()  one focused batch at a time
+        │     requests are queued and spaced (Flash ~4 RPM, Lite ~8 RPM)
+        │     unused Gemini 2.5 quota is preferred over exhausted 3.x models
+        │     max 8 assemble rounds; 4 empty tries per missing kind
         │
-        ├─ enrichWithLlm()      unused email + academic discussion
+        ├─ enrichWithLlm()      at most one paced email + discussion refresh
         ├─ validateForm()       counts, CTW rules, full-form uniqueness
         │                       (audio, passages, stems, both Module 2 routes)
         ▼
 Save TestForm.payloadJson
         │
         ▼
-attachFormAudio()                  progress per clip
+attachFormAudio()                  progress per clip (25s TTS timeout)
         │
         ├─ rememberSeen()
         ▼
@@ -67,6 +71,8 @@ Difficulty (`easier` / `standard` / `harder`) only changes CEFR bands and Module
 
 The stored paper is unique **as a whole**, including the unused Module 2 route. That route is still synthesized, and leftover overlap used to replay the same audio if routing later chose the other path, or if two spoken sets shared a script under different titles.
 
+A saved paper is rejected if any question stem, item fingerprint, passage, or audio repeats on the paper or matches this student’s seen store. LLM batches drop already-seen stems and stimuli before they enter the bank.
+
 ### Inside one stored paper (both Module 2 routes)
 
 | Rule | Required |
@@ -75,7 +81,7 @@ The stored paper is unique **as a whole**, including the unused Module 2 route. 
 | Daily-life and academic **texts** (not only titles) are unique across Module 1, Module 2 lower, and Module 2 upper. | Yes |
 | Every listen-and-choose **script**, conversation/announcement/talk **line**, listen-and-repeat sentence, and interview prompt is unique. A choose line may not reappear inside a dialogue. | Yes |
 | Spoken sets are unique by **full joined script**, not by title. | Yes |
-| Build a Sentence exchanges, email scenario, discussion prompt, and speaking scenarios are unique on the paper. Question stems must be unique **inside the same set** (generic stems such as “main idea” may repeat across sets). | Yes |
+| Build a Sentence exchanges, email scenario, discussion prompt, and speaking scenarios are unique on the paper. Question stems must be unique **across the whole paper**, including both Module 2 routes. The same stem cannot appear in reading and listening. | Yes |
 | Two clips that share the same first 96 normalized characters are treated as the same opening and rejected. | Yes |
 | Audio fill refuses to synthesize the same script twice. | Yes |
 
@@ -113,7 +119,7 @@ If a slot cannot be filled without reuse, the job **writes more original items**
 | **Listen and Repeat** | 7 sentences, one scenario | Handmade or LLM scenario with 7 sentences that get longer. | Student records. Timers 8/8/10/10/10/12/12. Each sentence gets a rotating accent. |
 | **Take an Interview** | 4 questions | Handmade or LLM scenario + interviewer name. | Fact → reaction → opinion → policy. 45 seconds each. |
 
-LLM batches (when a key is present) currently request about: 4 CTW, 6 daily, 1 academic, 10 listen-and-choose, 2 talks, 4 conversations, 2 announcements, 10 sentences, 1 repeat set, 1 interview. Any item that fails checks is dropped; the rest are kept. Email and discussion are a separate enrich call.
+LLM batches run only when the unused bank cannot fill a slot. They are sequential, not parallel, and a global limiter waits between Gemini calls so Flash stays under 5 requests/minute and Lite under about 8. JSON/shape failures retry the same model; they do not walk the whole fallback chain. A 429 cools that model (hours if the daily cap is exhausted) and the next unused model is tried — Gemini 2.5 Flash-Lite / Flash first. Focused retries request only the missing kind. Email and discussion get at most one later enrich call. Easier papers use A2–B1 writing seeds, including B1 discussion prompts (the old bank only had B2 discussions, which made easier generation stall).
 
 Checks live in `lib/generation/item-checks.ts`: word counts, paragraph shape, 10 CTW gaps, 4 unique options, paraphrase (correct option must not quote a long span of the stimulus), insert-text present, spoken line counts, sentence token/answer match.
 
@@ -155,9 +161,10 @@ Audio is still TTS, not studio recordings. Academic talks play slower than campu
 
 | File | Role |
 | --- | --- |
-| `lib/generation/index.ts` | Orchestrates LLM create → strict assemble loop → enrich → validate |
+| `lib/generation/index.ts` | Assembles unused items first; focused sequential LLM only if a slot is missing |
 | `lib/generation/jobs.ts` | Background prep jobs and progress |
-| `lib/generation/llm-create.ts` | Parallel JSON batches for almost every task type |
+| `lib/generation/llm-create.ts` | Sequential JSON batches for the missing task type |
+| `lib/gemini-limiter.ts` | Global Gemini spacing, per-model RPM gaps, daily-cap cooldown |
 | `lib/generation/llm-enrich.ts` | Email + discussion rewrite |
 | `lib/generation/item-checks.ts` | Reject bad LLM seeds |
 | `lib/generation/bank-reading.ts` | CTW / daily / academic pickers |

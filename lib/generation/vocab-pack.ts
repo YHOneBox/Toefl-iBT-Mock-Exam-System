@@ -113,6 +113,8 @@ export function retrieveItemContext(
     | "announcement"
     | "talk"
     | "sentence"
+    | "email"
+    | "discussion"
     | "speaking",
   difficulty: ExamDifficulty,
   avoid: string[] = [],
@@ -141,8 +143,18 @@ export function retrieveItemContext(
   if (kind === "ctw" || kind === "academic" || kind === "talk") {
     return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${academicFocus} ${avoidLine}`;
   }
-  if (kind === "daily" || kind === "choose" || kind === "conversation" || kind === "announcement" || kind === "sentence") {
+  if (
+    kind === "daily" ||
+    kind === "choose" ||
+    kind === "conversation" ||
+    kind === "announcement" ||
+    kind === "sentence" ||
+    kind === "email"
+  ) {
     return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${campusFocus} ${avoidLine}`;
+  }
+  if (kind === "discussion") {
+    return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${academicFocus} Keep the prompt introductory. ${avoidLine}`;
   }
   return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${campusFocus} ${academicFocus} ${avoidLine}`;
 }

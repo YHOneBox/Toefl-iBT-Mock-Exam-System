@@ -1,7 +1,7 @@
 import { ACCENT_GENDER_PAIRS } from "../accents";
 import { makeId } from "../ids";
 import type { SpeakingBundle } from "../types";
-import { isSeenKey, isSeenText } from "./content-key";
+import { contentKey, isSeenKey, isSeenText } from "./content-key";
 import { seedKey } from "./grown-bank";
 import { NeedMoreItems } from "./need-more";
 import type { InterviewSeed, RepeatSeed } from "./seeds";
@@ -65,6 +65,7 @@ export function makeSpeakingBundle(
   extras?: { repeats?: RepeatSeed[]; interviews?: InterviewSeed[] },
   seen: Set<string> = new Set(),
   strict = false,
+  usedStems: Set<string> = new Set(),
 ): SpeakingBundle {
   const repeats = [...(extras?.repeats || [])].reverse().concat(REPEAT);
   const interviews = [...(extras?.interviews || [])].reverse().concat(INTERVIEWS);
@@ -77,13 +78,14 @@ export function makeSpeakingBundle(
   const unusedInterview = interviews.find(
     (row) =>
       !isSeenKey(seen, seedKey("interviews", row)) &&
-      !row.questions.some((prompt) => isSeenText(seen, prompt)) &&
+      !row.questions.some((prompt) => usedStems.has(contentKey(prompt)) || isSeenText(seen, prompt)) &&
       new Set(row.questions.map((prompt) => prompt.trim().toLowerCase())).size === row.questions.length,
   );
   if (strict && !unusedRepeat) throw new NeedMoreItems("repeats");
   if (strict && !unusedInterview) throw new NeedMoreItems("interviews");
   const repeat = unusedRepeat || pickOne(REPEAT);
   const interview = unusedInterview || pickOne(INTERVIEWS);
+  for (const prompt of interview.questions) usedStems.add(contentKey(prompt));
   return {
     listenRepeat: {
       scenario: repeat.scenario,

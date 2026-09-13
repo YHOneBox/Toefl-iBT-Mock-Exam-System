@@ -1,3 +1,5 @@
+import { combineSignals } from "./abort";
+import { geminiLimiter, type GeminiWaitInfo } from "./gemini-limiter";
 import { getJsonSetting, getSetting, setSetting } from "./settings";
 
 const GEMINI_ROOT = "https://generativelanguage.googleapis.com/v1beta";
@@ -105,10 +107,10 @@ export function defaultGeminiChain(availableIds: string[] = []): string[] {
   const env = process.env.GEMINI_MODEL?.trim();
   const preferred = [
     env,
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
     "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
     "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
     "gemini-1.5-flash",
     "gemini-2.5-pro",
     "gemini-1.5-pro",
@@ -169,17 +171,20 @@ export async function callGeminiGenerateJson(opts: {
   temperature?: number;
   model: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onWait?: (info: GeminiWaitInfo) => void;
 }): Promise<unknown> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY missing");
   const model = stripModelPrefix(opts.model);
+  await geminiLimiter.waitFor(model, opts.signal, opts.onWait);
   const url = `${GEMINI_ROOT}/models/${model}:generateContent?key=${key}`;
   let res: Response;
   try {
     res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      signal: combineSignals(opts.signal, AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)),
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: opts.system || "Return valid JSON only." }] },
         contents: [{ role: "user", parts: [{ text: opts.user }] }],
@@ -191,11 +196,16 @@ export async function callGeminiGenerateJson(opts: {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (opts.signal?.aborted) throw new Error("Preparation was stopped.");
     if (/abort|timeout/i.test(msg)) throw new Error(`Gemini timeout on ${model}`);
     throw err;
   }
   if (!res.ok) {
-    throw new Error(`Gemini ${res.status} (${model}): ${await res.text()}`);
+    const body = await res.text();
+    if (res.status === 429 || /RESOURCE_EXHAUSTED|rate.?limit|quota/i.test(body)) {
+      throw new Error(`Gemini ${res.status} (${model}): ${body}`);
+    }
+    throw new Error(`Gemini ${res.status} (${model}): ${body}`);
   }
   const data = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;

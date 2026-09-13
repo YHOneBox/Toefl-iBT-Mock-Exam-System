@@ -1,14 +1,15 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { PrimaryButton } from "@/components/ui";
+import { appPath } from "@/lib/base-path";
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/";
+  const rawNext = params.get("next") || "/";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -16,31 +17,32 @@ function LoginForm() {
   const [userCount, setUserCount] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })
+    fetch(appPath("/api/auth/me"), { cache: "no-store", credentials: "same-origin" })
       .then((r) => r.json())
       .then((data: { user?: { username: string } | null; userCount?: number; isAdmin?: boolean }) => {
-        setUserCount(data.userCount ?? 0);
-        if (data.isAdmin) router.replace("/users");
-        else if (data.user) router.replace(next);
+        setUserCount(typeof data.userCount === "number" ? data.userCount : 1);
+        if (data.isAdmin) window.location.replace(appPath("/users"));
+        else if (data.user) window.location.replace(appPath(next));
       })
-      .catch(() => setUserCount(0));
-  }, [next, router]);
+      .catch(() => setUserCount((current) => current ?? 1));
+  }, [next]);
 
   async function submit(mode: "login" | "register") {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(mode === "login" ? "/api/auth/login" : "/api/auth/register", {
+      const res = await fetch(appPath(mode === "login" ? "/api/auth/login" : "/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        credentials: "same-origin",
+        body: JSON.stringify({ username: username.trim(), password }),
       });
       const data = (await res.json()) as { error?: string; user?: { isAdmin?: boolean } };
       if (!res.ok) throw new Error(data.error || "Failed");
-      router.replace(data.user?.isAdmin ? "/users" : next);
+      const dest = appPath(data.user?.isAdmin ? "/users" : next);
+      window.location.assign(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
-    } finally {
       setBusy(false);
     }
   }
@@ -56,7 +58,7 @@ function LoginForm() {
           <p className="muted mt-2 text-sm leading-6">
             {firstUser
               ? "Create the admin account first. After that, only admin can add other users."
-              : "Open your own tests and scores. Ask admin if you need an account."}
+              : "Open https://etnyhmac-mini.tail78f179.ts.net/toefl on phone and computer. Username is not case-sensitive."}
           </p>
           <form
             className="panel mt-6 space-y-4 p-6"

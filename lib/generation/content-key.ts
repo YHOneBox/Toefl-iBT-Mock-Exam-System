@@ -55,3 +55,23 @@ export function rememberKeysForText(value: string): string[] {
   if (full.length <= 96) return [full];
   return [full, full.slice(0, 96)];
 }
+
+export function questionKey(stem: string, extras: string[] = []): string {
+  return contentKey([stem, ...extras].filter(Boolean).join(" :: "));
+}
+
+export function wordNgrams(value: string, size = 10): string[] {
+  const words = contentKey(value).split(" ").filter(Boolean);
+  if (words.length < size) return [];
+  const grams: string[] = [];
+  for (let i = 0; i <= words.length - size; i += 1) {
+    grams.push(words.slice(i, i + size).join(" "));
+  }
+  return grams;
+}
+
+export function sharesWordNgram(left: string, right: string, size = 10): boolean {
+  const a = new Set(wordNgrams(left, size));
+  if (!a.size) return false;
+  return wordNgrams(right, size).some((gram) => a.has(gram));
+}

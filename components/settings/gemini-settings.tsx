@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { appPath } from "@/lib/base-path";
 import { AppShell } from "../app-shell";
 import { GhostButton, PrimaryButton } from "../ui";
 
@@ -35,7 +36,7 @@ export function GeminiSettings() {
 
   useEffect(() => {
     void loadSaved();
-    fetch("/api/auth/me", { cache: "no-store" })
+    fetch(appPath("/api/auth/me"), { cache: "no-store" })
       .then((r) => r.json())
       .then((data: { isAdmin?: boolean }) => {
         if (data.isAdmin) setHomeHref("/users");
@@ -52,7 +53,7 @@ export function GeminiSettings() {
   }
 
   async function loadSaved() {
-    const res = await fetch("/api/llm/settings", { cache: "no-store" });
+      const res = await fetch(appPath("/api/llm/settings"), { cache: "no-store" });
     const data = (await res.json()) as { settings?: Settings; keyPresent?: boolean };
     setKeyPresent(Boolean(data.keyPresent));
     applySettings(data.settings);
@@ -70,7 +71,7 @@ export function GeminiSettings() {
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch("/api/llm/models", { cache: "no-store" });
+      const res = await fetch(appPath("/api/llm/models"), { cache: "no-store" });
       const data = (await res.json()) as {
         models?: Model[];
         settings?: Settings;
@@ -125,7 +126,7 @@ export function GeminiSettings() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/llm/settings", {
+      const res = await fetch(appPath("/api/llm/settings"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chain: nextChain }),
@@ -133,7 +134,7 @@ export function GeminiSettings() {
       const data = (await res.json()) as { settings?: Settings; error?: string };
       if (!res.ok) throw new Error(data.error || "Save failed");
       applySettings(data.settings);
-      setStatus("Available models and fallback order are stored. Timeouts and quota errors will try the next model.");
+      setStatus("Fallback order saved. Generation still prefers unused 2.5 quota and waits between requests so Flash stays under 5 RPM.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -168,9 +169,11 @@ export function GeminiSettings() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Gemini model fallback</h1>
         <p className="muted mt-2 max-w-2xl text-sm leading-6">
-          Scanned models and the fallback order are both stored. Drag rows to change try order. If a model
-          hits a timeout, quota, or rate limit, the next selected model is used. OpenAI remains the last
-          fallback if it is configured.
+          Drag rows to change try order. Generation does not fire every model at once: requests are spaced
+          (about 4 per minute for Flash, 8 for Lite), and unused Gemini 2.5 Flash / Flash-Lite quota is
+          tried first so 3.x models that are already at 5 RPM or 20 RPD are not burned. A daily-cap 429
+          cools that model for hours. Timeouts and per-minute limits move to the next model. OpenAI stays
+          last if it is configured.
         </p>
       </div>
 

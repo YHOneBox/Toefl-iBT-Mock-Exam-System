@@ -534,7 +534,7 @@ const CONVERSATIONS: SpokenSeed[] = [
       { speakerId: "b", text: "Yes, but only if you upload it by noon today. They do not comment on late files." },
     ],
     questions: [
-      mcq("What is the woman's problem?", ["The writing center has no listed slots before her deadline", "She lost her chemistry textbook", "The center closed for the year", "She already uploaded the draft"], 0, "The booking site shows no times before Friday.", "main idea", "B1"),
+      mcq("Why can the woman not book a writing-center slot in time?", ["The writing center has no listed slots before her deadline", "She lost her chemistry textbook", "The center closed for the year", "She already uploaded the draft"], 0, "The booking site shows no times before Friday.", "main idea", "B1"),
       mcq("What must she do for written comments?", ["Arrive Friday night", "Upload the draft by noon today", "Skip chemistry forever", "Call the dean"], 1, "Written comments require an upload by noon.", "factual", "B1"),
     ],
   },
@@ -731,24 +731,30 @@ const TALKS: SpokenSeed[] = [
   },
 ];
 
-function spokenConflicts(
-  seed: SpokenSeed,
-  used: { scripts: Set<string>; titles: Set<string> },
-  seen: Set<string>,
-): boolean {
+export type ListenUsed = { scripts: Set<string>; titles: Set<string>; stems: Set<string> };
+
+function emptyListenUsed(): ListenUsed {
+  return { scripts: new Set<string>(), titles: new Set<string>(), stems: new Set<string>() };
+}
+
+function spokenConflicts(seed: SpokenSeed, used: ListenUsed, seen: Set<string>): boolean {
   if (used.titles.has(seed.title.trim())) return true;
+  if (seed.questions.some((question) => used.stems.has(contentKey(question.stem)) || isSeenKey(seen, contentKey(question.stem)))) {
+    return true;
+  }
   return spokenAudioKeys(expandTalkScript(seed).script).some((key) => used.scripts.has(key) || isSeenKey(seen, key));
 }
 
-function markSpokenUsed(seed: SpokenSeed, used: { scripts: Set<string>; titles: Set<string> }) {
+function markSpokenUsed(seed: SpokenSeed, used: ListenUsed) {
   used.titles.add(seed.title.trim());
   for (const key of spokenAudioKeys(expandTalkScript(seed).script)) used.scripts.add(key);
+  for (const question of seed.questions) used.stems.add(contentKey(question.stem));
 }
 
 function pickSpoken(
   pool: SpokenSeed[],
   n: number,
-  used: { scripts: Set<string>; titles: Set<string> },
+  used: ListenUsed,
   seen: Set<string>,
   strict: boolean,
   kind: string,
@@ -816,7 +822,7 @@ export function listeningBundleFor(
           announcements?: SpokenSeed[];
           talks?: SpokenSeed[];
         };
-        used?: { scripts: Set<string>; titles: Set<string> };
+        used?: ListenUsed;
         seen?: Set<string>;
         strict?: boolean;
       } = false,
@@ -825,10 +831,9 @@ export function listeningBundleFor(
   const band =
     typeof opts === "boolean" ? (opts ? "harder" : "standard") : opts.band || (hard ? "harder" : "standard");
   const extras = typeof opts === "boolean" ? {} : opts.extras || {};
-  const used = typeof opts === "boolean" ? { scripts: new Set<string>(), titles: new Set<string>() } : opts.used || {
-    scripts: new Set<string>(),
-    titles: new Set<string>(),
-  };
+  const used =
+    typeof opts === "boolean" ? emptyListenUsed() : opts.used || emptyListenUsed();
+  if (!used.stems) used.stems = new Set<string>();
   const seen = typeof opts === "boolean" ? new Set<string>() : opts.seen || new Set<string>();
   const strict = typeof opts === "boolean" ? false : Boolean(opts.strict);
   const convAll = [...(extras.conversations || [])].reverse().concat(CONVERSATIONS);

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { BASE_PATH } from "./base-path";
 import { prisma } from "./db";
 
 const COOKIE = "toefl_auth";
@@ -19,25 +20,33 @@ export function verifyPassword(password: string, stored: string): boolean {
   return prev.length === next.length && timingSafeEqual(prev, next);
 }
 
+function normalizeUsername(username: string) {
+  return username.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+export async function findUserByUsername(username: string) {
+  const name = normalizeUsername(username);
+  if (!name) return null;
+  const exact = await prisma.user.findUnique({ where: { username: name } });
+  if (exact) return exact;
+  const users = await prisma.user.findMany();
+  const lower = name.toLowerCase();
+  return users.find((row) => row.username.toLowerCase() === lower) ?? null;
+}
+
 export async function createUser(username: string, password: string) {
-  const name = username.trim();
+  const name = normalizeUsername(username);
   if (name.length < 2) throw new Error("Username must be at least 2 characters");
   if (password.length < 4) throw new Error("Password must be at least 4 characters");
-  const existing = await prisma.user.findUnique({ where: { username: name } });
+  const existing = await findUserByUsername(name);
   if (existing) throw new Error("That username is already taken");
-  if (name.toLowerCase() === "admin") {
-    const users = await prisma.user.findMany({ select: { username: true } });
-    if (users.some((row) => row.username.toLowerCase() === "admin")) {
-      throw new Error("The admin account already exists");
-    }
-  }
   return prisma.user.create({
     data: { username: name, passwordHash: hashPassword(password) },
   });
 }
 
 export async function loginUser(username: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { username: username.trim() } });
+  const user = await findUserByUsername(username);
   if (!user || !verifyPassword(password, user.passwordHash)) {
     throw new Error("Invalid username or password");
   }
@@ -78,7 +87,7 @@ export function authCookie(token: string, secure = false) {
     value: token,
     httpOnly: true,
     sameSite: "lax" as const,
-    path: "/",
+    path: BASE_PATH,
     maxAge: 60 * 60 * 24 * 30,
     secure,
   };

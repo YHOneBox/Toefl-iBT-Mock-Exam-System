@@ -1,3 +1,4 @@
+import { combineSignals } from "./abort";
 import { loadConstraintPack } from "./constraints";
 import {
   callGeminiGenerateJson,
@@ -5,11 +6,14 @@ import {
   loadGeminiSettings,
   rememberGeminiUse,
 } from "./gemini";
+import { geminiLimiter, quotaAwareChain, retryAfterMs, type GeminiWaitInfo } from "./gemini-limiter";
 
 export type LlmJsonOptions = {
   system?: string;
   user: string;
   temperature?: number;
+  signal?: AbortSignal;
+  onWait?: (info: GeminiWaitInfo) => void;
 };
 
 function extractJson(text: string): unknown {
@@ -26,16 +30,29 @@ function extractJson(text: string): unknown {
 
 async function geminiJsonWithFallback(opts: LlmJsonOptions & { system: string }): Promise<unknown> {
   if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY missing");
+  await geminiLimiter.hydrate();
   const settings = await loadGeminiSettings();
-  const chain = settings.chain.length ? settings.chain : [process.env.GEMINI_MODEL || "gemini-2.0-flash"];
+  const rawChain = settings.chain.length ? settings.chain : [process.env.GEMINI_MODEL || "gemini-2.5-flash-lite"];
+  const chain = geminiLimiter.readyFirst(
+    quotaAwareChain(
+      rawChain,
+      settings.available.map((model) => model.id),
+    ),
+  );
   const errors: string[] = [];
   for (const model of chain) {
+    if (geminiLimiter.isCooling(model)) {
+      errors.push(`${model}: cooling down after a rate limit`);
+      continue;
+    }
     try {
       const result = await callGeminiGenerateJson({
         system: opts.system,
         user: opts.user,
         temperature: opts.temperature,
         model,
+        signal: opts.signal,
+        onWait: opts.onWait,
       });
       await rememberGeminiUse(model);
       return result;
@@ -43,10 +60,24 @@ async function geminiJsonWithFallback(opts: LlmJsonOptions & { system: string })
       const message = err instanceof Error ? err.message : String(err);
       errors.push(`${model}: ${message}`);
       await rememberGeminiUse(model, message);
-      if (!isTransientLlmError(err) && !/404|not found|NOT_FOUND|not supported/i.test(message)) {
-        if (/401|403|API_KEY|invalid.*key/i.test(message)) break;
+      if (/401|403|API_KEY|invalid.*key/i.test(message)) break;
+      if (/429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(message)) {
+        const waitMs = retryAfterMs(message);
+        geminiLimiter.noteLimited(model, waitMs);
+        const hours = waitMs >= 60 * 60 * 1000;
+        opts.onWait?.({
+          waitMs,
+          model,
+          reason: hours
+            ? `${model} is at its daily cap; switching to a model with unused quota`
+            : `${model} hit its per-minute limit; trying the next unused model`,
+        });
         continue;
       }
+      if (/404|not found|NOT_FOUND|not supported/i.test(message) || isTransientLlmError(err)) {
+        continue;
+      }
+      throw err;
     }
   }
   throw new Error(errors.join(" | ") || "All Gemini models failed");
@@ -63,7 +94,7 @@ async function openaiJson(opts: LlmJsonOptions): Promise<unknown> {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
     },
-    signal: AbortSignal.timeout(40_000),
+    signal: combineSignals(opts.signal, AbortSignal.timeout(40_000)),
     body: JSON.stringify({
       model,
       temperature: opts.temperature ?? 0.7,

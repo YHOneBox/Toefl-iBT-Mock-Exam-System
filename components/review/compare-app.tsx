@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { ClientSession } from "@/lib/client-types";
+import { appPath } from "@/lib/base-path";
 import { AppShell } from "../app-shell";
 import { Band } from "../ui";
 
@@ -30,7 +31,7 @@ export function CompareApp() {
 
   useEffect(() => {
     if (!a || !b) return;
-    fetch(`/api/compare?a=${a}&b=${b}`)
+    fetch(appPath(`/api/compare?a=${a}&b=${b}`))
       .then((r) => r.json())
       .then((json) => {
         if (json.error) setError(json.error);

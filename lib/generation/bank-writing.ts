@@ -4,7 +4,7 @@ import { cefrAllowed, type DifficultyBand } from "./difficulty";
 import { contentKey, isSeenKey, isSeenText } from "./content-key";
 import { seedKey } from "./grown-bank";
 import { NeedMoreItems } from "./need-more";
-import type { SentenceSeed } from "./seeds";
+import type { DiscussionSeed, EmailSeed, GrownBank, SentenceSeed } from "./seeds";
 import { pick, pickOne, shuffle } from "./util";
 
 const SENTENCES: Array<Omit<BuildSentenceItem, "id" | "taskType">> = [
@@ -92,6 +92,41 @@ const SENTENCES: Array<Omit<BuildSentenceItem, "id" | "taskType">> = [
     answer: ["Email", "the", "registrar", "and", "ask", "them", "to", "delete", "the", "duplicate"],
     rationale: "A clear next action solves the error.",
   },
+  {
+    cefr: "A2",
+    exchange: "A: The cafeteria card reader is broken.\nB:",
+    tokens: ["You", "can", "pay", "with", "cash", "at", "the", "next", "register"],
+    answer: ["You", "can", "pay", "with", "cash", "at", "the", "next", "register"],
+    rationale: "A simple alternative answers the problem.",
+  },
+  {
+    cefr: "B1",
+    exchange: "A: I need a quiet place to record my presentation.\nB:",
+    tokens: ["Try", "the", "media", "rooms", "behind", "the", "library", "cafe"],
+    answer: ["Try", "the", "media", "rooms", "behind", "the", "library", "cafe"],
+    rationale: "A specific campus location fits the request.",
+  },
+  {
+    cefr: "A2",
+    exchange: "A: Where do I pick up my student ID?\nB:",
+    tokens: ["The", "card", "office", "is", "next", "to", "the", "bookstore"],
+    answer: ["The", "card", "office", "is", "next", "to", "the", "bookstore"],
+    rationale: "A location fact answers the question.",
+  },
+  {
+    cefr: "B1",
+    exchange: "A: My roommate is moving out next week.\nB:",
+    tokens: ["You", "should", "tell", "housing", "before", "they", "assign", "someone", "new"],
+    answer: ["You", "should", "tell", "housing", "before", "they", "assign", "someone", "new"],
+    rationale: "Advice about a housing process is appropriate.",
+  },
+  {
+    cefr: "A2",
+    exchange: "A: Is there a bike rack near the science building?\nB:",
+    tokens: ["There", "is", "one", "by", "the", "side", "entrance"],
+    answer: ["There", "is", "one", "by", "the", "side", "entrance"],
+    rationale: "A short location answer fits the question.",
+  },
 ];
 
 const EMAILS: Array<Omit<EmailTask, "id" | "taskType">> = [
@@ -146,6 +181,38 @@ Thank you for organizing the trip, and I hope everyone has a good hike.
 Sincerely,
 Alex Chen`,
   },
+  {
+    cefr: "B1",
+    scenario:
+      "You have a clinic appointment during tomorrow's seminar. Write to your professor. Explain the conflict, ask whether you may submit the reflection online, and offer to meet in office hours.",
+    audience: "Seminar professor",
+    goal: "Request a short accommodation politely and offer a clear alternative.",
+    sampleAnswer: `Dear Professor Patel,
+
+I have a campus clinic appointment during tomorrow's seminar and will miss the in-class reflection. I do not want to fall behind on the weekly post.
+
+Could I please submit the reflection online by tomorrow evening? I can also come to office hours this week if you would like me to catch up in person.
+
+Thank you for your time.
+
+Sincerely,
+Alex Chen`,
+  },
+  {
+    cefr: "B1",
+    scenario:
+      "The tech bar could not recover a file you need for a group poster. Write to your group. Explain what happened, say what you can still do tonight, and ask someone to bring the printed draft to the meeting.",
+    audience: "Your project group",
+    goal: "Report a problem, share a plan, and ask for one clear action.",
+    sampleAnswer: `Hi everyone,
+
+The tech bar could not recover the poster file, so I cannot edit the latest version on my laptop. I still have the notes and can finish the captions tonight.
+
+Could someone please bring the printed draft to the meeting so we can mark changes on paper? I will arrive early and set up the table.
+
+Thanks,
+Alex`,
+  },
 ];
 
 const DISCUSSIONS: Array<Omit<DiscussionTask, "id" | "taskType">> = [
@@ -187,28 +254,89 @@ const DISCUSSIONS: Array<Omit<DiscussionTask, "id" | "taskType">> = [
     ],
     prompt: "Contribute to the discussion with a clear, elaborated opinion.",
   },
+  {
+    cefr: "B1",
+    course: "First-Year Seminar 100",
+    professor: {
+      name: "Professor Hale",
+      text: "Some clubs require a weekly meeting so members stay involved. Other students say required meetings keep busy people away. Should campus clubs require weekly meetings, or should they let members come when they can? Explain your view.",
+    },
+    students: [
+      {
+        name: "Nora",
+        text: "I think a weekly meeting helps a club finish real work. If nobody has to come, the same three people do everything.",
+      },
+      {
+        name: "Omar",
+        text: "Required meetings can shut out students with jobs or labs. I would keep one optional meeting and use a group chat for updates.",
+      },
+    ],
+    prompt: "Write a post with a clear opinion. You may agree with Nora or Omar, but add your own reason.",
+  },
+  {
+    cefr: "B1",
+    course: "Campus Wellness 110",
+    professor: {
+      name: "Professor Kim",
+      text: "The recreation center can stay open later at night, or it can offer more short morning classes. The staff budget can support only one change this term. Which choice helps more students, and why?",
+    },
+    students: [
+      {
+        name: "Priya",
+        text: "Later hours help students who have class all day. I would rather exercise at night than wake up earlier.",
+      },
+      {
+        name: "Leo",
+        text: "Morning classes are easier to staff, and they help people start the day. Late nights can also make the gym less safe.",
+      },
+    ],
+    prompt: "Take a position and support it with campus-life reasons.",
+  },
 ];
+
+function writingExtras(
+  extras: SentenceSeed[] | Pick<GrownBank, "sentences" | "emails" | "discussions"> | undefined,
+): { sentences: SentenceSeed[]; emails: EmailSeed[]; discussions: DiscussionSeed[] } {
+  if (!extras) return { sentences: [], emails: [], discussions: [] };
+  if (Array.isArray(extras)) return { sentences: extras, emails: [], discussions: [] };
+  return {
+    sentences: extras.sentences || [],
+    emails: extras.emails || [],
+    discussions: extras.discussions || [],
+  };
+}
 
 export function makeWritingBundle(
   band: DifficultyBand = "standard",
-  extras: SentenceSeed[] = [],
+  extras: SentenceSeed[] | Pick<GrownBank, "sentences" | "emails" | "discussions"> = [],
   seen: Set<string> = new Set(),
   strict = false,
+  _usedStems: Set<string> = new Set(),
 ) {
+  const extra = writingExtras(extras);
   const allow = new Set(cefrAllowed(band));
-  const unseen = (row: SentenceSeed) => !isSeenKey(seen, seedKey("sentences", row));
-  const merged = [...extras].reverse().concat(SENTENCES);
+  const unseen = (row: SentenceSeed) =>
+    !isSeenKey(seen, seedKey("sentences", row)) && !isSeenKey(seen, contentKey(row.answer.join(" ")));
+  const merged = [...extra.sentences].reverse().concat(SENTENCES);
   const usedExchanges = new Set<string>();
+  const usedAnswers = new Set<string>();
   const sentencePool = merged.filter((row) => {
     if (!allow.has(row.cefr) || !unseen(row)) return false;
     const key = contentKey(row.exchange);
-    if (!key || usedExchanges.has(key)) return false;
+    const answer = contentKey(row.answer.join(" "));
+    if (!key || usedExchanges.has(key) || !answer || usedAnswers.has(answer)) return false;
     usedExchanges.add(key);
+    usedAnswers.add(answer);
     return true;
   });
-  const emailPool = EMAILS.filter((row) => allow.has(row.cefr) && !isSeenText(seen, row.scenario));
-  const discussionPool = DISCUSSIONS.filter(
-    (row) => allow.has(row.cefr) && !isSeenText(seen, row.prompt),
+  const emailPool = [...extra.emails, ...EMAILS].filter(
+    (row) => allow.has(row.cefr) && !isSeenText(seen, row.scenario) && !isSeenKey(seen, seedKey("emails", row)),
+  );
+  const discussionPool = [...extra.discussions, ...DISCUSSIONS].filter(
+    (row) =>
+      allow.has(row.cefr) &&
+      !isSeenText(seen, row.prompt) &&
+      !isSeenKey(seen, seedKey("discussions", row)),
   );
   if (strict && sentencePool.length < 10) throw new NeedMoreItems("sentences");
   if (strict && emailPool.length === 0) throw new NeedMoreItems("email");

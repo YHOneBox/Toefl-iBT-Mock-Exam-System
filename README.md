@@ -41,7 +41,7 @@ The first account you create should be **admin** (username `admin`). That accoun
 
 A full paper can be generated from the built-in bank with no keys.
 
-- `GEMINI_API_KEY` — new original items on **Start new test**, plus scoring for email, discussion, and interview. In the app, **Gemini models** scans the key and sets fallback order.
+- `GEMINI_API_KEY` — new original items on **Start new test**, plus scoring for email, discussion, and interview. In the app, **Gemini models** scans the key and sets fallback order. Generation assembles unused bank items first, then calls Gemini one request at a time (unused 2.5 quota first) so Flash stays under 5 RPM.
 - `OPENAI_API_KEY` — last-resort LLM, TTS, and Whisper transcription.
 - `ELEVENLABS_API_KEY` — optional TTS. You can set a voice per accent and gender in `.env.example`.
 

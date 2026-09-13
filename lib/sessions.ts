@@ -4,6 +4,7 @@ import { parseForm } from "./form";
 import { attachFormAudio } from "./generation/audio-fill";
 import { generateFormPayload, type GenerateProgress } from "./generation";
 import { fingerprintsFromForm, labelsFromForm, rememberSeen } from "./generation/history";
+import { uniquenessIssues } from "./generation/uniqueness";
 import { routeFromAccuracy, scoreListeningModule, scoreReadingModule } from "./adaptive";
 import { parseScope } from "./scope";
 import { durationForPointer } from "./timing";
@@ -13,9 +14,10 @@ export async function createPreparedForm(
   userId: string,
   difficulty: ExamDifficulty = "standard",
   onProgress?: GenerateProgress,
+  opts?: { signal?: AbortSignal },
 ) {
-  const payload = await generateFormPayload(difficulty, userId, onProgress);
-  onProgress?.({ progress: 76, stage: "Saving the unused paper" });
+  const payload = await generateFormPayload(difficulty, userId, onProgress, opts);
+  onProgress?.({ progress: 76, stage: "Saving the unused paper", detail: "Storing the form before audio" });
   const form = await prisma.testForm.create({
     data: {
       topicTags: JSON.stringify(payload.topics),
@@ -30,8 +32,13 @@ export async function createPreparedForm(
       onProgress?.({
         progress: 78 + Math.round(ratio * 18),
         stage: `Creating audio ${done} / ${total}`,
+        detail: "Listening and speaking clips — browser TTS is used if a clip fails",
       });
-    });
+    }, opts?.signal);
+    const leftover = uniquenessIssues(withAudio);
+    if (leftover.length) {
+      throw new Error(`Audio fill left duplicate content: ${leftover.join("; ")}`);
+    }
     await prisma.testForm.update({
       where: { id: form.id },
       data: { payloadJson: JSON.stringify(withAudio) },

@@ -2,6 +2,8 @@ import type {
   AcademicSet,
   BuildSentenceItem,
   DailyLifeSet,
+  DiscussionTask,
+  EmailTask,
   ListenChooseItem,
   SpokenSet,
 } from "../types";
@@ -32,6 +34,10 @@ export type InterviewSeed = {
   questions: string[];
 };
 
+export type EmailSeed = Omit<EmailTask, "id" | "taskType">;
+
+export type DiscussionSeed = Omit<DiscussionTask, "id" | "taskType">;
+
 export type GrownBank = {
   version: 1;
   ctw: CtwSeed[];
@@ -42,6 +48,8 @@ export type GrownBank = {
   announcements: SpokenSeed[];
   talks: SpokenSeed[];
   sentences: SentenceSeed[];
+  emails: EmailSeed[];
+  discussions: DiscussionSeed[];
   repeats: RepeatSeed[];
   interviews: InterviewSeed[];
 };
@@ -57,6 +65,8 @@ export function emptyGrownBank(): GrownBank {
     announcements: [],
     talks: [],
     sentences: [],
+    emails: [],
+    discussions: [],
     repeats: [],
     interviews: [],
   };

@@ -36,6 +36,7 @@ export async function synthesizeToFile(
             "Content-Type": "application/json",
             "xi-api-key": process.env.ELEVENLABS_API_KEY,
           },
+          signal: AbortSignal.timeout(25_000),
           body: JSON.stringify({
             text,
             model_id: "eleven_multilingual_v2",
@@ -59,6 +60,7 @@ export async function synthesizeToFile(
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         },
+        signal: AbortSignal.timeout(25_000),
         body: JSON.stringify({
           model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
           voice: OPENAI_VOICE[accent][gender],

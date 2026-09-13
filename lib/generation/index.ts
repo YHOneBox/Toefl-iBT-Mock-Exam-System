@@ -1,3 +1,5 @@
+import { throwIfAborted } from "../abort";
+import type { GeminiWaitInfo } from "../gemini-limiter";
 import { hasLlmKey } from "../llm";
 import type { Cefr, ExamDifficulty, TestFormPayload } from "../types";
 import { makeAcademicSet, makeCtwSet, makeDailySets } from "./bank-reading";
@@ -6,16 +8,62 @@ import { makeSpeakingBundle } from "./bank-speaking";
 import { makeWritingBundle } from "./bank-writing";
 import { getDifficultyProfile, parseDifficulty } from "./difficulty";
 import { appendGrownBank, loadGrownBank } from "./grown-bank";
-import { isSeenText } from "./content-key";
+import { contentKey, isSeenText } from "./content-key";
 import { seenForUser } from "./history";
 import { createFreshItems } from "./llm-create";
 import { enrichWithLlm } from "./llm-enrich";
 import { isNeedMoreItems, NeedMoreItems } from "./need-more";
-import { reusedSeenKeys } from "./uniqueness";
+import { formUniquenessErrors, reusedSeenKeys } from "./uniqueness";
 import { emptyGrownBank, type GrownBank } from "./seeds";
 import { validateForm } from "./validate";
 
-export type GenerateProgress = (update: { progress: number; stage: string }) => void;
+export type GenerateProgress = (update: { progress: number; stage: string; detail?: string }) => void;
+
+const MAX_ASSEMBLE_ROUNDS = 8;
+const MAX_EMPTY_FOR_KIND = 4;
+
+function kindFromAssembleErrors(errors: string[]): string {
+  const blob = errors.join(" ").toLowerCase();
+  const rules: Array<[RegExp, string]> = [
+    [/listen-choose|listen and choose/, "choose"],
+    [/conversation/, "conversations"],
+    [/announcement/, "announcements"],
+    [/academic talk|\btalks?\b/, "talks"],
+    [/complete the words|\bctw\b/, "ctw"],
+    [/daily/, "daily"],
+    [/academic/, "academic"],
+    [/sentence/, "sentences"],
+    [/email/, "email"],
+    [/discussion/, "discussion"],
+    [/repeat/, "repeats"],
+    [/interview/, "interviews"],
+    [/reuse|seen|duplicate question/, "uniqueness"],
+  ];
+  for (const [re, kind] of rules) {
+    if (re.test(blob)) return kind;
+  }
+  return "valid-paper";
+}
+
+function missingLabel(kind: string) {
+  const labels: Record<string, string> = {
+    sentences: "build-a-sentence items",
+    email: "email prompts",
+    discussion: "academic discussion prompts",
+    repeats: "listen-and-repeat sets",
+    interviews: "interview sets",
+    ctw: "complete-the-words passages",
+    daily: "daily-life texts",
+    academic: "academic passages",
+    choose: "listen-and-choose items",
+    conversations: "conversations",
+    announcements: "announcements",
+    talks: "academic talks",
+    uniqueness: "unused items that do not repeat",
+    "valid-paper": "a complete unused paper",
+  };
+  return labels[kind] || kind;
+}
 
 function asCtw(cefr: Cefr): "B1" | "B2" | "C1" {
   if (cefr === "C1" || cefr === "C2") return "C1";
@@ -37,46 +85,54 @@ export function assembleLocalForm(
   ctwExclude.push(ctw1b.fullPassage);
   const dailyUsed = new Set<string>();
   const academicUsed = new Set<string>();
-  const listenUsed = { scripts: new Set<string>(), titles: new Set<string>() };
+  const usedStems = new Set<string>();
+  const listenUsed = { scripts: new Set<string>(), titles: new Set<string>(), stems: usedStems };
   const ctw2l = makeCtwSet("m2", asCtw(d.reading.m2LowerCtw), ctwExclude, extras.ctw, seen, strict);
   ctwExclude.push(ctw2l.fullPassage);
   const ctw2u = makeCtwSet("m2", asCtw(d.reading.m2UpperCtw), ctwExclude, extras.ctw, seen, strict);
+  const reading = {
+    module1: {
+      completeTheWords: [ctw1a, ctw1b],
+      dailyLife: makeDailySets("m1", [2, 2, 3, 3], d.reading.daily, extras.daily, dailyUsed, seen, strict, usedStems),
+      academic: [makeAcademicSet("m1", d.reading.academic, extras.academic, academicUsed, seen, strict, usedStems)],
+    },
+    module2Lower: {
+      completeTheWords: [ctw2l],
+      dailyLife: makeDailySets(
+        "m2",
+        [2, 3],
+        d.reading.daily === "harder" ? "easier" : d.reading.daily,
+        extras.daily,
+        dailyUsed,
+        seen,
+        strict,
+        usedStems,
+      ),
+      academic: [] as ReturnType<typeof makeAcademicSet>[],
+    },
+    module2Upper: {
+      completeTheWords: [ctw2u],
+      dailyLife: makeDailySets(
+        "m2",
+        [2, 3],
+        d.reading.daily === "easier" ? "standard" : d.reading.daily,
+        extras.daily,
+        dailyUsed,
+        seen,
+        strict,
+        usedStems,
+      ),
+      academic: [] as ReturnType<typeof makeAcademicSet>[],
+    },
+  };
+  for (const value of [...dailyUsed, ...academicUsed, ...ctwExclude]) {
+    const key = contentKey(value);
+    if (key) listenUsed.scripts.add(key);
+  }
   const form: TestFormPayload = {
     topics: [],
     difficulty,
-    reading: {
-      module1: {
-        completeTheWords: [ctw1a, ctw1b],
-        dailyLife: makeDailySets("m1", [2, 2, 3, 3], d.reading.daily, extras.daily, dailyUsed, seen, strict),
-        academic: [makeAcademicSet("m1", d.reading.academic, extras.academic, academicUsed, seen, strict)],
-      },
-      module2Lower: {
-        completeTheWords: [ctw2l],
-        dailyLife: makeDailySets(
-          "m2",
-          [2, 3],
-          d.reading.daily === "harder" ? "easier" : d.reading.daily,
-          extras.daily,
-          dailyUsed,
-          seen,
-          strict,
-        ),
-        academic: [],
-      },
-      module2Upper: {
-        completeTheWords: [ctw2u],
-        dailyLife: makeDailySets(
-          "m2",
-          [2, 3],
-          d.reading.daily === "easier" ? "standard" : d.reading.daily,
-          extras.daily,
-          dailyUsed,
-          seen,
-          strict,
-        ),
-        academic: [],
-      },
-    },
+    reading,
     listening: {
       module1: listeningBundleFor(
         "m1",
@@ -106,8 +162,8 @@ export function assembleLocalForm(
         },
       ),
     },
-    writing: makeWritingBundle(d.writing, extras.sentences, seen, strict),
-    speaking: makeSpeakingBundle({ repeats: extras.repeats, interviews: extras.interviews }, seen, strict),
+    writing: makeWritingBundle(d.writing, extras, seen, strict, usedStems),
+    speaking: makeSpeakingBundle({ repeats: extras.repeats, interviews: extras.interviews }, seen, strict, usedStems),
   };
   form.topics = collectTopics(form);
   return form;
@@ -132,28 +188,71 @@ export async function generateFormPayload(
   difficulty: ExamDifficulty = "standard",
   userId?: string,
   onProgress?: GenerateProgress,
+  opts?: { signal?: AbortSignal },
 ): Promise<TestFormPayload> {
   const level = parseDifficulty(difficulty);
-  const report = (progress: number, stage: string) => onProgress?.({ progress, stage });
-  report(4, "Loading what you have already seen");
+  const signal = opts?.signal;
+  const report = (progress: number, stage: string, detail?: string) => {
+    throwIfAborted(signal);
+    onProgress?.({ progress, stage, detail });
+  };
+  report(4, "Loading what you have already seen", "Checking past papers so this sitting does not repeat a question");
   const history = userId ? await seenForUser(userId) : { keys: new Set<string>(), labels: [] as string[] };
   let extras = loadGrownBank();
   let form: TestFormPayload | null = null;
-  let emptyRounds = 0;
+  const emptyByKind: Record<string, number> = {};
   const avoid = [...history.labels, ...[...history.keys].slice(-40)];
 
-  if (hasLlmKey()) {
-    report(8, "Writing a new batch of original items");
-    const seedForm = assembleLocalForm(level, extras);
-    const created = await createFreshItems(level, seedForm, avoid, {
-      scale: 1,
-      onBatch: (label) => report(12, `Writing original ${label}`),
-    });
-    if (created.added > 0) extras = appendGrownBank(created.bank);
+  const onWait = (info: GeminiWaitInfo) => {
+    report(Math.max(8, Math.min(68, 12)), "Pacing Gemini requests", info.reason);
+  };
+
+  report(8, "Using unused items already on hand", "Calling the model only if a unique paper cannot be built yet");
+  let missingKind = "";
+  let neededLlm = false;
+  try {
+    form = validLocalForm(level, extras, history.keys, true);
+  } catch (err) {
+    if (!isNeedMoreItems(err) && !(err instanceof Error && /items|module|must have/i.test(err.message))) {
+      throw err;
+    }
+    missingKind = isNeedMoreItems(err) ? err.kind : "valid-paper";
   }
 
-  for (let round = 0; round < 100; round += 1) {
-    report(Math.min(68, 16 + round * 5), round === 0 ? "Building an unused paper" : `Writing more original items (round ${round + 1})`);
+  for (let round = 0; !form && round < MAX_ASSEMBLE_ROUNDS; round += 1) {
+    throwIfAborted(signal);
+    const kind = missingKind || "valid-paper";
+    if (!hasLlmKey()) {
+      throw new Error(
+        `Need more unused ${missingLabel(kind)}. Add GEMINI_API_KEY or OPENAI_API_KEY so the app can write original questions instead of repeating old ones.`,
+      );
+    }
+    report(
+      Math.min(68, 16 + round * 7),
+      `Writing more ${missingLabel(kind)}`,
+      `One Gemini request at a time · round ${round + 1} of ${MAX_ASSEMBLE_ROUNDS}`,
+    );
+    neededLlm = true;
+    const created = await createFreshItems(level, assembleLocalForm(level, extras), avoid, {
+      scale: round === 0 ? 1 : 2,
+      focus: kind,
+      signal,
+      seen: history.keys,
+      onWait,
+      onBatch: (label) =>
+        report(Math.min(68, 18 + round * 7), `Writing original ${label}`, "Requests are spaced so Flash stays under 5 RPM"),
+    });
+    if (created.added > 0) {
+      extras = appendGrownBank(created.bank);
+      emptyByKind[kind] = 0;
+    } else {
+      emptyByKind[kind] = (emptyByKind[kind] || 0) + 1;
+      if (emptyByKind[kind] >= MAX_EMPTY_FOR_KIND) {
+        throw new Error(
+          `The model could not produce enough unused ${missingLabel(kind)} after ${MAX_EMPTY_FOR_KIND} tries. Check the API key and Gemini fallback order, then try again.`,
+        );
+      }
+    }
     try {
       form = validLocalForm(level, extras, history.keys, true);
       break;
@@ -161,45 +260,25 @@ export async function generateFormPayload(
       if (!isNeedMoreItems(err) && !(err instanceof Error && /items|module|must have/i.test(err.message))) {
         throw err;
       }
-      if (!hasLlmKey()) {
-        throw new Error(
-          "A fully new paper needs unused items. Add GEMINI_API_KEY or OPENAI_API_KEY so the app can keep writing original questions instead of repeating old ones.",
-        );
-      }
-      const created = await createFreshItems(level, form || assembleLocalForm(level, extras), avoid, {
-        scale: 2,
-        onBatch: (label) =>
-          report(Math.min(68, 18 + round * 5), `Writing original ${label} (round ${round + 1})`),
-      });
-      if (created.added > 0) {
-        extras = appendGrownBank(created.bank);
-        emptyRounds = 0;
-      } else {
-        emptyRounds += 1;
-        if (emptyRounds >= 12) {
-          throw new Error(
-            "The model could not produce enough unused items. Check the API key and Gemini fallback order, then try again.",
-          );
-        }
-      }
+      missingKind = isNeedMoreItems(err) ? err.kind : "valid-paper";
     }
   }
   if (!form) {
-    throw new Error("Could not assemble an all-new paper. Try again in a few minutes.");
+    throw new Error("Could not assemble an all-new paper in time. Stop and try again, or wait a few minutes.");
   }
 
-  report(70, "Writing a new email and discussion");
-  await enrichUntilUnseen(form, level, avoid, history.keys);
+  if (!neededLlm) {
+    report(70, "Refreshing unused writing prompts", "One paced Gemini call so the email and discussion stay unused");
+    await enrichUntilUnseen(form, level, avoid, history.keys, signal, onWait);
+  } else {
+    report(70, "Skipping extra writing refresh", "The model already ran for missing items; no second Gemini wave");
+  }
 
-  const finalErrors = validateForm(form);
+  const finalErrors = [...validateForm(form), ...formUniquenessErrors(form, history.keys)];
   if (finalErrors.length) {
-    throw new Error(`The paper failed uniqueness or count checks: ${finalErrors.join("; ")}`);
+    throw new Error(`The paper failed uniqueness or count checks: ${[...new Set(finalErrors)].join("; ")}`);
   }
-  const reused = reusedSeenKeys(form, history.keys);
-  if (reused.length) {
-    throw new Error("Assembly still contained a previously seen item. The paper was not saved.");
-  }
-  report(74, "Paper is all new");
+  report(74, "Paper is all new", "Every question is unused and unique on this paper");
   return form;
 }
 
@@ -208,6 +287,8 @@ async function enrichUntilUnseen(
   level: ExamDifficulty,
   avoid: string[],
   seen: Set<string>,
+  signal?: AbortSignal,
+  onWait?: (info: GeminiWaitInfo) => void,
 ) {
   const keepEmail = { ...form.writing.email };
   const keepDiscussion = {
@@ -216,34 +297,26 @@ async function enrichUntilUnseen(
     students: form.writing.discussion.students.map((row) => ({ ...row })),
   };
   if (!hasLlmKey()) return;
-  for (let i = 0; i < 8; i += 1) {
-    try {
-      await enrichWithLlm(form, level, avoid);
-    } catch {
-      Object.assign(form.writing.email, keepEmail);
-      form.writing.discussion.course = keepDiscussion.course;
-      form.writing.discussion.professor = keepDiscussion.professor;
-      form.writing.discussion.students = keepDiscussion.students;
-      form.writing.discussion.prompt = keepDiscussion.prompt;
-      return;
-    }
-    const emailSeen = isSeenText(seen, form.writing.email.scenario || "");
-    const discussionSeen = isSeenText(seen, form.writing.discussion.prompt || "");
-    if (!emailSeen && !discussionSeen) return;
-    if (emailSeen) Object.assign(form.writing.email, keepEmail);
-    if (discussionSeen) {
-      form.writing.discussion.course = keepDiscussion.course;
-      form.writing.discussion.professor = keepDiscussion.professor;
-      form.writing.discussion.students = keepDiscussion.students;
-      form.writing.discussion.prompt = keepDiscussion.prompt;
-    }
-    avoid = [
-      ...avoid,
-      form.writing.email.scenario.slice(0, 80),
-      form.writing.discussion.course,
-      form.writing.discussion.prompt.slice(0, 80),
-    ];
+  throwIfAborted(signal);
+  try {
+    await enrichWithLlm(form, level, avoid, signal, onWait);
+  } catch {
+    Object.assign(form.writing.email, keepEmail);
+    form.writing.discussion.course = keepDiscussion.course;
+    form.writing.discussion.professor = keepDiscussion.professor;
+    form.writing.discussion.students = keepDiscussion.students;
+    form.writing.discussion.prompt = keepDiscussion.prompt;
+    return;
   }
+  const emailSeen = isSeenText(seen, form.writing.email.scenario || "");
+  const discussionSeen = isSeenText(seen, form.writing.discussion.prompt || "");
+  const paperErrors = formUniquenessErrors(form, seen);
+  if (!emailSeen && !discussionSeen && !paperErrors.length) return;
+  Object.assign(form.writing.email, keepEmail);
+  form.writing.discussion.course = keepDiscussion.course;
+  form.writing.discussion.professor = keepDiscussion.professor;
+  form.writing.discussion.students = keepDiscussion.students;
+  form.writing.discussion.prompt = keepDiscussion.prompt;
 }
 
 function validLocalForm(
@@ -253,11 +326,13 @@ function validLocalForm(
   strict = false,
 ): TestFormPayload {
   const form = assembleLocalForm(difficulty, extras, seen, strict);
-  const errors = validateForm(form);
+  const errors = [...validateForm(form), ...formUniquenessErrors(form, seen)];
   if (errors.length) {
-    if (strict) throw new NeedMoreItems("valid-paper");
+    if (strict) {
+      throw new NeedMoreItems(kindFromAssembleErrors(errors));
+    }
     const retry = assembleLocalForm(difficulty, extras, seen, strict);
-    const retryErrors = validateForm(retry);
+    const retryErrors = [...validateForm(retry), ...formUniquenessErrors(retry, seen)];
     if (retryErrors.length) throw new Error(retryErrors.join("; "));
     return retry;
   }

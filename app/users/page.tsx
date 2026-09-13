@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { GhostButton, PrimaryButton } from "@/components/ui";
+import { appPath } from "@/lib/base-path";
 
 type UserRow = {
   id: string;
@@ -30,7 +31,7 @@ export default function UsersPage() {
   const [deleteFor, setDeleteFor] = useState<string | null>(null);
 
   async function load() {
-    const me = (await fetch("/api/auth/me", { cache: "no-store" }).then((r) => r.json())) as {
+    const me = (await fetch(appPath("/api/auth/me"), { cache: "no-store" }).then((r) => r.json())) as {
       isAdmin?: boolean;
     };
     if (!me.isAdmin) {
@@ -39,7 +40,7 @@ export default function UsersPage() {
       return;
     }
     setAllowed(true);
-    const res = await fetch("/api/users", { cache: "no-store" });
+    const res = await fetch(appPath("/api/users"), { cache: "no-store" });
     const data = (await res.json()) as { users?: UserRow[] };
     setUsers(data.users || []);
   }
@@ -53,7 +54,7 @@ export default function UsersPage() {
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch(appPath("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -78,7 +79,7 @@ export default function UsersPage() {
     try {
       if (newPassword.length < 4) throw new Error("Password must be at least 4 characters");
       if (newPassword !== confirmPassword) throw new Error("The two passwords do not match");
-      const res = await fetch(`/api/users/${user.id}`, {
+      const res = await fetch(appPath(`/api/users/${user.id}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: newPassword }),
@@ -105,7 +106,7 @@ export default function UsersPage() {
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
+      const res = await fetch(appPath(`/api/users/${user.id}`), { method: "DELETE" });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || "Could not delete user");
       setDeleteFor(null);
@@ -143,8 +144,8 @@ export default function UsersPage() {
           </Link>
           <GhostButton
             onClick={() => {
-              void fetch("/api/auth/logout", { method: "POST" }).then(() => {
-                window.location.href = "/login";
+              void fetch(appPath("/api/auth/logout"), { method: "POST" }).then(() => {
+                window.location.href = appPath("/login");
               });
             }}
           >

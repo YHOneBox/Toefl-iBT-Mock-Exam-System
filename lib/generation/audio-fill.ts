@@ -1,3 +1,4 @@
+import { throwIfAborted } from "../abort";
 import { fillAudio } from "../tts";
 import type { TestFormPayload } from "../types";
 import { contentKey } from "./content-key";
@@ -7,6 +8,7 @@ export async function attachFormAudio(
   formId: string,
   form: TestFormPayload,
   onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<TestFormPayload> {
   const issues = uniquenessIssues(form);
   if (issues.length) {
@@ -77,6 +79,7 @@ export async function attachFormAudio(
   let done = 0;
   const limit = 6;
   for (let i = 0; i < tasks.length; i += limit) {
+    throwIfAborted(signal);
     await Promise.all(tasks.slice(i, i + limit).map((run) => run()));
     done = Math.min(total, i + limit);
     onProgress?.(done, total);

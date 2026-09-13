@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { appPath } from "./lib/base-path";
 
 const PUBLIC = [/^\/login$/, /^\/register$/, /^\/api\/auth\//];
 
@@ -14,11 +15,15 @@ function publicOrigin(request: NextRequest) {
     return `${proto}://${host}`;
   }
 
-  const configured = process.env.TOEFL_PUBLIC_URL?.replace(/\/$/, "");
-  if (configured) return configured;
+  const configured = process.env.TOEFL_PUBLIC_URL;
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      return configured.replace(/\/toefl\/?$/, "").replace(/\/$/, "");
+    }
+  }
 
-  // Relative Location keeps the browser on the URL the user actually opened
-  // (Tailscale hostname), instead of leaking 127.0.0.1:3010.
   return "";
 }
 
@@ -32,7 +37,7 @@ export function middleware(request: NextRequest) {
   }
   const next = pathname + request.nextUrl.search;
   const origin = publicOrigin(request);
-  const location = `${origin}/login?next=${encodeURIComponent(next)}`;
+  const location = `${origin}${appPath("/login")}?next=${encodeURIComponent(next)}`;
   return new NextResponse(null, {
     status: 307,
     headers: { Location: location },
@@ -40,5 +45,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/", "/((?!_next/static|_next/image|favicon.ico).*)"],
 };

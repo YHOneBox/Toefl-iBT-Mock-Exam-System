@@ -588,6 +588,7 @@ export function makeDailySets(
   usedTitles: Set<string> = new Set(),
   seen: Set<string> = new Set(),
   strict = false,
+  usedStems: Set<string> = new Set(),
 ): DailyLifeSet[] {
   const allow = new Set(cefrAllowed(band));
   const pool = [...extras, ...DAILY];
@@ -595,7 +596,11 @@ export function makeDailySets(
     const taken = (d: DailySeed) =>
       usedTitles.has(d.title) ||
       usedTitles.has(contentKey(d.text)) ||
-      isSeenKey(seen, seedKey("daily", d));
+      isSeenKey(seen, seedKey("daily", d)) ||
+      d.questions.some((question) => {
+        const stem = contentKey(question.stem);
+        return usedStems.has(stem) || isSeenKey(seen, stem);
+      });
     const unusedFit = (items: DailySeed[], exact: boolean) =>
       items.filter(
         (d) =>
@@ -630,6 +635,7 @@ export function makeDailySets(
         );
     usedTitles.add(src.title);
     usedTitles.add(contentKey(src.text));
+    for (const question of src.questions.slice(0, need)) usedStems.add(contentKey(question.stem));
     return {
       ...src,
       id: makeId("daily"),
@@ -647,6 +653,7 @@ export function makeAcademicSet(
   usedTitles: Set<string> = new Set(),
   seen: Set<string> = new Set(),
   strict = false,
+  usedStems: Set<string> = new Set(),
 ): AcademicSet {
   const level = band === true ? "harder" : band === false ? "standard" : band;
   const allow = new Set(cefrAllowed(level));
@@ -654,7 +661,11 @@ export function makeAcademicSet(
   const taken = (a: AcademicSeed) =>
     usedTitles.has(a.title) ||
     usedTitles.has(contentKey(a.text)) ||
-    isSeenKey(seen, seedKey("academic", a));
+    isSeenKey(seen, seedKey("academic", a)) ||
+    a.questions.some((question) => {
+      const stem = contentKey(question.stem);
+      return usedStems.has(stem) || isSeenKey(seen, stem);
+    });
   const extraFit = extras.filter((a) => !taken(a) && allow.has(a.cefr));
   const levelFit = pool.filter((a) => !taken(a) && allow.has(a.cefr));
   const unused = pool.filter((a) => !taken(a));
@@ -666,6 +677,7 @@ export function makeAcademicSet(
     : pickSeed(levelFit.length ? levelFit : unused, unused, ACADEMIC);
   usedTitles.add(src.title);
   usedTitles.add(contentKey(src.text));
+  for (const question of src.questions) usedStems.add(contentKey(question.stem));
   return {
     ...src,
     id: makeId("acad"),

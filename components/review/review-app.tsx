@@ -9,6 +9,7 @@ import { enabledSections } from "@/lib/scope";
 import { classic30Scores } from "@/lib/scoring";
 import { formatSpent, itemMs, officialLimit, parseTiming, partMs } from "@/lib/timing-log";
 import type { RawScores, SectionName } from "@/lib/types";
+import { appPath } from "@/lib/base-path";
 import { AppShell } from "../app-shell";
 import { Band, PrimaryButton } from "../ui";
 import { VoiceControls } from "../voice/voice-context";
@@ -29,7 +30,7 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
   }, [section]);
 
   useEffect(() => {
-    fetch(`/api/sessions/${sessionId}`)
+    fetch(appPath(`/api/sessions/${sessionId}`))
       .then(async (r) => {
         const data = (await r.json()) as ClientSession & { error?: string };
         if (!r.ok || data.error || !data.form) throw new Error(data.error || "Could not load this review");
@@ -308,7 +309,7 @@ function ReviewItems({
       )}
 
       <div className="flex gap-2">
-        <PrimaryButton onClick={() => (window.location.href = "/")}>Main page</PrimaryButton>
+        <PrimaryButton onClick={() => (window.location.href = appPath("/"))}>Main page</PrimaryButton>
       </div>
     </div>
   );

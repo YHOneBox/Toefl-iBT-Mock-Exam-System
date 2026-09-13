@@ -1,5 +1,16 @@
 import { normalizeText, splitSentences, wordCount } from "../passage";
-import type { AcademicSeed, ChooseSeed, CtwSeed, DailySeed, InterviewSeed, RepeatSeed, SentenceSeed, SpokenSeed } from "./seeds";
+import type {
+  AcademicSeed,
+  ChooseSeed,
+  CtwSeed,
+  DailySeed,
+  DiscussionSeed,
+  EmailSeed,
+  InterviewSeed,
+  RepeatSeed,
+  SentenceSeed,
+  SpokenSeed,
+} from "./seeds";
 import { buildCompleteTheWords } from "./ctw";
 
 export function quotesStimulus(option: string, stimulus: string): boolean {
@@ -13,6 +24,14 @@ export function quotesStimulus(option: string, stimulus: string): boolean {
     if (hay.includes(words.slice(i, i + 6).join(" "))) return true;
   }
   return false;
+}
+
+function stemErrors(stems: string[], label: string): string[] {
+  const errors: string[] = [];
+  const keys = stems.map((stem) => normalizeText(stem)).filter(Boolean);
+  if (keys.some((key) => key.length < 8)) errors.push(`${label} has a missing or generic stem`);
+  if (new Set(keys).size !== keys.length) errors.push(`${label} has duplicate question stems`);
+  return errors;
 }
 
 function optionErrors(options: string[], stimulus: string, label: string): string[] {
@@ -44,6 +63,7 @@ export function checkDailySeed(seed: DailySeed): string[] {
   if (words < 15 || words > 150) errors.push(`Daily text ${words} words`);
   if (!seed.title || !seed.format || !seed.topic) errors.push("Daily seed missing title, format, or topic");
   if (seed.questions.length < 2 || seed.questions.length > 3) errors.push("Daily needs 2-3 questions");
+  errors.push(...stemErrors(seed.questions.map((q) => q.stem), "Daily"));
   seed.questions.forEach((q, i) => {
     errors.push(...optionErrors(q.options, seed.text, `Daily Q${i + 1}`));
     if (q.answerKey < 0 || q.answerKey > 3) errors.push(`Daily Q${i + 1} answerKey`);
@@ -59,6 +79,7 @@ export function checkAcademicSeed(seed: AcademicSeed): string[] {
   const words = wordCount(seed.text);
   if (words < 170 || words > 240) errors.push(`Academic passage ${words} words (need ~200)`);
   if (seed.questions.length !== 5) errors.push("Academic needs 5 questions");
+  errors.push(...stemErrors(seed.questions.map((q) => q.stem), "Academic"));
   const sentences = splitSentences(seed.text);
   if (sentences.length < 5) errors.push("Academic passage needs at least 5 sentences");
   const insert = seed.questions.find((q) => q.passageAction === "insert" || q.insertSentence || /insert/i.test(q.skill));
@@ -108,6 +129,7 @@ export function checkSpokenSeed(seed: SpokenSeed): string[] {
   if (new Set(lineKeys).size !== lineKeys.length) errors.push("Spoken seed has duplicate lines");
   const need = seed.taskType === "listen_academic_talk" ? 4 : 2;
   if (seed.questions.length !== need) errors.push(`${seed.taskType} needs ${need} questions`);
+  errors.push(...stemErrors(seed.questions.map((q) => q.stem), seed.title || seed.taskType));
   const stimulus = seed.script.map((line) => line.text).join(" ");
   seed.questions.forEach((q, i) => {
     errors.push(...optionErrors(q.options, stimulus, `${seed.title} Q${i + 1}`));
@@ -149,5 +171,28 @@ export function checkInterviewSeed(seed: InterviewSeed): string[] {
   if (new Set(seed.questions.map((q) => normalizeText(q))).size !== seed.questions.length) {
     errors.push("Interview has duplicate prompts");
   }
+  return errors;
+}
+
+export function checkEmailSeed(seed: EmailSeed): string[] {
+  const errors: string[] = [];
+  if (!seed.scenario || seed.scenario.trim().length < 40) errors.push("Email scenario is too short");
+  if (!seed.audience || seed.audience.trim().length < 3) errors.push("Email missing audience");
+  if (!seed.goal || seed.goal.trim().length < 8) errors.push("Email missing goal");
+  if (seed.sampleAnswer && seed.sampleAnswer.trim().length < 60) errors.push("Email sample answer is too short");
+  return errors;
+}
+
+export function checkDiscussionSeed(seed: DiscussionSeed): string[] {
+  const errors: string[] = [];
+  if (!seed.course || seed.course.trim().length < 3) errors.push("Discussion missing course");
+  if (!seed.professor?.name || !seed.professor?.text || seed.professor.text.trim().length < 40) {
+    errors.push("Discussion professor prompt is too short");
+  }
+  if (!seed.students || seed.students.length !== 2) errors.push("Discussion needs two student posts");
+  if (seed.students?.some((row) => !row?.name || !row?.text || row.text.trim().length < 20)) {
+    errors.push("Discussion student posts are too short");
+  }
+  if (!seed.prompt || seed.prompt.trim().length < 20) errors.push("Discussion missing student prompt");
   return errors;
 }

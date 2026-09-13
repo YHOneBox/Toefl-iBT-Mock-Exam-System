@@ -15,6 +15,8 @@ const CAPS: Record<keyof Omit<GrownBank, "version">, number> = {
   announcements: 40,
   talks: 40,
   sentences: 80,
+  emails: 40,
+  discussions: 40,
   repeats: 20,
   interviews: 20,
 };
@@ -31,6 +33,8 @@ export function seedKey(kind: keyof Omit<GrownBank, "version">, item: unknown): 
     return contentKey(String(row.script || audio?.script || ""));
   }
   if (kind === "sentences") return contentKey(String(row.exchange || ""));
+  if (kind === "emails") return contentKey(String(row.scenario || ""));
+  if (kind === "discussions") return contentKey(String(row.prompt || row.course || ""));
   if (kind === "repeats" || kind === "interviews") return contentKey(String(row.scenario || ""));
   if (kind === "conversations" || kind === "announcements" || kind === "talks") {
     const script = Array.isArray(row.script)
@@ -45,10 +49,13 @@ export function loadGrownBank(): GrownBank {
   try {
     if (!fs.existsSync(BANK_PATH)) return emptyGrownBank();
     const raw = JSON.parse(fs.readFileSync(BANK_PATH, "utf8")) as Partial<GrownBank>;
+    const empty = emptyGrownBank();
     return {
-      ...emptyGrownBank(),
+      ...empty,
       ...raw,
       version: 1,
+      emails: raw.emails || [],
+      discussions: raw.discussions || [],
     };
   } catch {
     return emptyGrownBank();
@@ -77,6 +84,8 @@ export function mergeGrownBank(base: GrownBank, incoming: Partial<GrownBank>): G
     announcements: appendUnique(base.announcements, incoming.announcements, CAPS.announcements, "announcements"),
     talks: appendUnique(base.talks, incoming.talks, CAPS.talks, "talks"),
     sentences: appendUnique(base.sentences, incoming.sentences, CAPS.sentences, "sentences"),
+    emails: appendUnique(base.emails, incoming.emails, CAPS.emails, "emails"),
+    discussions: appendUnique(base.discussions, incoming.discussions, CAPS.discussions, "discussions"),
     repeats: appendUnique(base.repeats, incoming.repeats, CAPS.repeats, "repeats"),
     interviews: appendUnique(base.interviews, incoming.interviews, CAPS.interviews, "interviews"),
   };
@@ -103,6 +112,8 @@ export function grownBankSize(bank: GrownBank): number {
     bank.announcements.length +
     bank.talks.length +
     bank.sentences.length +
+    bank.emails.length +
+    bank.discussions.length +
     bank.repeats.length +
     bank.interviews.length
   );

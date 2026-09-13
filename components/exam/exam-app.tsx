@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { appPath } from "@/lib/base-path";
 import { flattenListeningItems, flattenReadingSets, listeningBundle, pointerTitle, readingBundle, readingItemIds, speakingInterviewItems, speakingRepeatItems } from "@/lib/form";
 import { parseScope } from "@/lib/scope";
 import { formatClock } from "@/lib/timing";
@@ -17,7 +18,7 @@ import { DiscussionTaskView, EmailTaskView, SentenceBuilder } from "../tasks/wri
 import { InterviewTask, MicMeter, RepeatTask } from "../tasks/speaking";
 
 async function loadSession(id: string): Promise<ClientSession> {
-  const res = await fetch(`/api/sessions/${id}`, { cache: "no-store" });
+  const res = await fetch(appPath(`/api/sessions/${id}`), { cache: "no-store" });
   if (!res.ok) throw new Error("Could not load session");
   return res.json();
 }
@@ -69,7 +70,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
   function persistTiming(next: SessionTiming) {
     timingRef.current = next;
     setSession((prev) => (prev ? { ...prev, timing: next } : prev));
-    void fetch(`/api/sessions/${sessionId}`, {
+    void fetch(appPath(`/api/sessions/${sessionId}`), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ timing: next }),
@@ -121,7 +122,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
           }
         : prev,
     );
-    await fetch(`/api/sessions/${sessionId}/responses`, {
+    await fetch(appPath(`/api/sessions/${sessionId}/responses`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ itemId, value, transcript }),
@@ -132,7 +133,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
     const data = new FormData();
     data.set("itemId", itemId);
     data.set("file", blob, `${itemId}.webm`);
-    await fetch(`/api/sessions/${sessionId}/record`, { method: "POST", body: data });
+    await fetch(appPath(`/api/sessions/${sessionId}/record`), { method: "POST", body: data });
     setSession((prev) =>
       prev
         ? {
@@ -147,7 +148,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
     if (!session || busy) return;
     flushTiming();
     setBusy(true);
-    const res = await fetch(`/api/sessions/${sessionId}/advance`, { method: "POST" });
+    const res = await fetch(appPath(`/api/sessions/${sessionId}/advance`), { method: "POST" });
     const next = (await res.json()) as ClientSession & { error?: string };
     setBusy(false);
     if (res.status === 409 || next.currentPointer === "completed" || next.status === "completed") {
@@ -247,7 +248,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
               onChange={(e) => {
                 const notepad = e.target.value;
                 setSession({ ...session, notepad });
-                void fetch(`/api/sessions/${sessionId}`, {
+                void fetch(appPath(`/api/sessions/${sessionId}`), {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ notepad }),

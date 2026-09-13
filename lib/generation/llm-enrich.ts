@@ -1,10 +1,12 @@
-import { generateJson } from "../llm";
+import { generateJson, type LlmJsonOptions } from "../llm";
 import type { ExamDifficulty, TestFormPayload } from "../types";
 
 export async function enrichWithLlm(
   form: TestFormPayload,
   difficulty: ExamDifficulty = "standard",
   avoid: string[] = [],
+  signal?: AbortSignal,
+  onWait?: LlmJsonOptions["onWait"],
 ): Promise<void> {
   const level =
     difficulty === "easier"
@@ -20,6 +22,8 @@ export async function enrichWithLlm(
 JSON shape: {"email":{"scenario":"","audience":"","goal":"","sampleAnswer":""},"discussion":{"course":"","professor":{"name":"","text":""},"students":[{"name":"","text":""},{"name":"","text":""}],"prompt":""}}
 The email sampleAnswer must be a complete student email (90-130 words): greeting, 2 short body paragraphs that do the requested actions in first person, polite closing, and a name. Do not paste the test instructions or the goal line into the email.`,
     temperature: 0.8,
+    signal,
+    onWait,
   })) as {
     email?: { scenario?: string; audience?: string; goal?: string; sampleAnswer?: string };
     discussion?: {

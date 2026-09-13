@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { langForAccent } from "@/lib/accents";
+import { appPath } from "@/lib/base-path";
 import type { AudioRef, SpokenSet } from "@/lib/types";
 import { applyPlaybackGain, speechVolume } from "@/lib/playback-gain";
 import { useVoice } from "./voice/voice-context";
@@ -65,7 +66,7 @@ export function PlayOnceAudio({
     const token = gen.current;
     setPlaying(true);
     if (audio.path && !audio.fallbackTts) {
-      const src = `/api/media?path=${encodeURIComponent(`data/audio/${audio.path}`)}`;
+      const src = appPath(`/api/media?path=${encodeURIComponent(`data/audio/${audio.path}`)}`);
       const el = new Audio(src);
       ref.current = el;
       applyPlaybackGain(el, prefs.volume);
@@ -181,7 +182,7 @@ export function DialoguePlayer({
       speakLine(index, token);
       return;
     }
-    const el = new Audio(`/api/media?path=${encodeURIComponent(`data/audio/${clip.path}`)}`);
+    const el = new Audio(appPath(`/api/media?path=${encodeURIComponent(`data/audio/${clip.path}`)}`));
     audioRef.current = el;
     applyPlaybackGain(el, prefs.volume);
     el.playbackRate = clip.rate ?? set.audio.rate ?? 1;
@@ -256,5 +257,5 @@ export function RecordingPlayer({ path }: { path?: string | null }) {
     if (ref.current) applyPlaybackGain(ref.current, prefs.volume);
   }, [path, prefs.volume]);
   if (!path) return <p className="text-sm text-[#5b6775]">No recording</p>;
-  return <audio ref={ref} controls src={`/api/media?path=${encodeURIComponent(path)}`} className="w-full" />;
+  return <audio ref={ref} controls src={appPath(`/api/media?path=${encodeURIComponent(path)}`)} className="w-full" />;
 }

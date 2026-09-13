@@ -7,10 +7,17 @@ const extraOrigins = (process.env.ALLOWED_ORIGINS || "")
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
+  basePath: "/toefl",
   serverExternalPackages: ["@prisma/client", "prisma"],
   outputFileTracingRoot: path.join(__dirname),
   devIndicators: false,
   allowedDevOrigins: extraOrigins,
+  async redirects() {
+    return [
+      { source: "/", destination: "/toefl", basePath: false, permanent: false },
+      { source: "/login", destination: "/toefl/login", basePath: false, permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;
