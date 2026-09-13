@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #1b2430;
+  --muted: #5b6775;
+  --line: #d5dbe3;
+  --paper: #f4f6f8;
+  --panel: #ffffff;
+  --accent: #1f4e79;
+  --accent-2: #2b6cb0;
+  --danger: #9b2c2c;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.exam-chrome {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: 56px 1fr 64px;
+}
+
+.exam-header,
+.exam-footer {
+  background: #16324f;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.exam-main {
+  padding: 20px 24px 28px;
+  overflow: auto;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.option {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: white;
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+
+.option[data-selected="true"]:not([data-review-correct="true"]):not([data-review-wrong="true"]) {
+  border-color: var(--accent);
+  background: #e8f1fb;
+}
+
+.option[data-review-correct="true"] {
+  border: 2px solid #15803d;
+  background: #dcfce7;
+  color: #14532d;
+  box-shadow: 0 0 0 2px #16a34a;
+}
+
+.option[data-review-wrong="true"] {
+  border: 2px solid #b91c1c;
+  background: #fee2e2;
+  color: #7f1d1d;
+  box-shadow: 0 0 0 2px #dc2626;
+}
+
+.option:disabled {
+  opacity: 1;
+}
+
+.ctw-word {
+  display: inline;
+  white-space: nowrap;
+}
+
+.ctw-word input {
+  display: inline;
+  margin: 0;
+  padding: 0 1px 0 0;
+  border: none;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  vertical-align: baseline;
+  line-height: inherit;
+  width: calc(var(--letters, 4) * 1ch + 2px);
+  min-width: 1ch;
+}
+
+.ctw-word input.ctw-ok {
+  border-bottom-color: #15803d;
+  background: #dcfce7;
+}
+
+.ctw-word input.ctw-bad {
+  border-bottom-color: #b91c1c;
+  background: #fee2e2;
+}
+
+.clock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+nextjs-portal,
+[data-next-mark-loading],
+#__next-dev-indicator,
+#__next-build-watcher,
+button[aria-label*="Next.js"],
+button[aria-label*="Nextjs"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}

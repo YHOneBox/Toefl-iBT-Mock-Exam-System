@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+data/*.db
+data/*.db-journal
+data/app-settings.json
+data/audio/**
+data/recordings/**
+!data/audio/.gitkeep
+!data/recordings/.gitkeep
+.env
+.env.local
+*.log

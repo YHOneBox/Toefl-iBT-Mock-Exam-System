@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  username     String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  authSessions AuthSession[]
+  forms        TestForm[]
+  exams        ExamSession[]
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model TestForm {
+  id          String        @id @default(cuid())
+  createdAt   DateTime      @default(now())
+  topicTags   String
+  payloadJson String
+  difficulty  String       @default("standard")
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions    ExamSession[]
+}
+
+model ExamSession {
+  id                 String       @id @default(cuid())
+  formId             String
+  form               TestForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  userId             String?
+  user               User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode               String
+  scopeJson          String
+  sourceSessionId    String?
+  status             String
+  currentPointer     String
+  readingRoute       String?
+  listeningRoute     String?
+  allowReadapt       Boolean      @default(false)
+  sectionStartedAt   DateTime?
+  sectionEndsAt      DateTime?
+  notepad            String       @default("")
+  timingJson         String       @default("{}")
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  completedAt        DateTime?
+  responses          Response[]
+  scoreReport        ScoreReport?
+}
+
+model Response {
+  id            String      @id @default(cuid())
+  sessionId     String
+  session       ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  itemId        String
+  valueJson     String
+  recordingPath String?
+  transcript    String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([sessionId, itemId])
+}
+
+model ScoreReport {
+  id                     String      @id @default(cuid())
+  sessionId              String      @unique
+  session                ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  rawJson                String
+  bandsJson              String
+  traitsJson             String
+  concordanceJson        String
+  compositeFromSessionId String?
+  createdAt              DateTime    @default(now())
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
