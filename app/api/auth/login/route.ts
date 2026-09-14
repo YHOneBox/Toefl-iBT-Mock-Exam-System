@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { authCookie, isSecureRequest, loginUser, publicUser } from "@/lib/auth";
 
@@ -9,9 +8,9 @@ export async function POST(req: Request) {
   }
   try {
     const { user, token } = await loginUser(body.username, body.password);
-    const jar = await cookies();
-    jar.set(authCookie(token, isSecureRequest(req)));
-    return NextResponse.json({ user: publicUser(user) });
+    const res = NextResponse.json({ user: publicUser(user) });
+    res.cookies.set(authCookie(token, isSecureRequest(req)));
+    return res;
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Login failed" }, { status: 401 });
   }

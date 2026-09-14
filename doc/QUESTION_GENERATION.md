@@ -15,7 +15,7 @@ This file describes the **item pipeline** for a new enhanced TOEFL iBT paper in 
 - **New test** (`/api/generate`) starts a **prep job** with a progress bar. It writes original items and assembles a paper that contains **no fingerprints this student has already seen**.
 - The job keeps generating until the unused pool is large enough, **or** until a hard stop. It does **not** fall back to repeating old items. If there is no API key and the unused bank is empty, preparation fails instead of reusing.
 - **Stops:** you can press **Stop** on the dashboard. A job also stops if it runs longer than **12 minutes**, if it goes **4 minutes** without a progress update, or if the same missing item type fails **4** focused LLM retries (max **8** assemble rounds). A stopped or failed job never saves a paper.
-- You can **prepare for later**: the paper and audio are stored with no sitting. Start it later with no wait.
+- You can **prepare several papers for later**: they queue one at a time (max 5 per request, 8 unused or queued in total). Start any unused paper later with no wait.
 - **Retake** and **Redo** reuse an existing form on purpose (same questions, new sitting). That is not a new test.
 
 ---

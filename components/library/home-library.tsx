@@ -65,22 +65,54 @@ export function HomeLibrary() {
   const [difficulty, setDifficulty] = useState<ExamDifficulty>("standard");
   const [jobLimitMs, setJobLimitMs] = useState(12 * 60 * 1000);
   const [nowTick, setNowTick] = useState(0);
+  const [prepareCount, setPrepareCount] = useState(2);
+  const [maxHeldPapers, setMaxHeldPapers] = useState(8);
+  const [maxPrepareBatch, setMaxPrepareBatch] = useState(5);
+  const [unusedCount, setUnusedCount] = useState(0);
   const busy = jobs.some((job) => job.status === "queued" || job.status === "running");
-  const waitJob = jobs.find((job) => job.id === waitStartId) || jobs.find((job) => job.intent === "start" && (job.status === "queued" || job.status === "running"));
+  const starting = jobs.some(
+    (job) => job.intent === "start" && (job.status === "queued" || job.status === "running"),
+  );
+  const waitJob =
+    jobs.find((job) => job.id === waitStartId) ||
+    jobs.find((job) => job.intent === "start" && (job.status === "queued" || job.status === "running"));
+  const inflightCount = jobs.filter((job) => job.status === "queued" || job.status === "running").length;
+  const heldCount = unusedCount + inflightCount;
+  const room = Math.max(0, maxHeldPapers - heldCount);
 
   async function refresh() {
-    const res = await fetch(appPath("/api/library"), { cache: "no-store" });
-    const data = (await res.json()) as { forms: DashboardForm[] };
-    setForms(data.forms);
+    const res = await fetch(appPath("/api/library"), { cache: "no-store", credentials: "same-origin" });
+    if (res.status === 401) {
+      window.location.assign(appPath("/login"));
+      return;
+    }
+    const data = (await res.json().catch(() => ({}))) as { forms?: DashboardForm[] };
+    const next = Array.isArray(data.forms) ? data.forms : [];
+    setForms(next);
+    setUnusedCount(next.filter((form) => form.attempts.length === 0).length);
   }
 
   async function loadJobs() {
-    const res = await fetch(appPath("/api/generate"), { cache: "no-store" });
-    const data = (await res.json()) as { jobs?: PrepJob[]; llmReady?: boolean; jobLimitMs?: number };
-    const next = data.jobs || [];
+    const res = await fetch(appPath("/api/generate"), { cache: "no-store", credentials: "same-origin" });
+    if (res.status === 401) {
+      window.location.assign(appPath("/login"));
+      return [];
+    }
+    const data = (await res.json().catch(() => ({}))) as {
+      jobs?: PrepJob[];
+      llmReady?: boolean;
+      jobLimitMs?: number;
+      unusedCount?: number;
+      maxHeldPapers?: number;
+      maxPrepareBatch?: number;
+    };
+    const next = Array.isArray(data.jobs) ? data.jobs : [];
     setJobs(next);
     if (typeof data.llmReady === "boolean") setLlmReady(data.llmReady);
     if (typeof data.jobLimitMs === "number" && data.jobLimitMs > 0) setJobLimitMs(data.jobLimitMs);
+    if (typeof data.unusedCount === "number") setUnusedCount(data.unusedCount);
+    if (typeof data.maxHeldPapers === "number") setMaxHeldPapers(data.maxHeldPapers);
+    if (typeof data.maxPrepareBatch === "number") setMaxPrepareBatch(data.maxPrepareBatch);
     return next;
   }
 
@@ -95,7 +127,7 @@ export function HomeLibrary() {
         setStartOpen(true);
       }
     });
-    fetch(appPath("/api/auth/me"), { cache: "no-store" })
+    fetch(appPath("/api/auth/me"), { cache: "no-store", credentials: "same-origin" })
       .then((r) => r.json())
       .then((data: { user?: { username?: string } | null }) => {
         if (data.user?.username) setUsername(data.user.username);
@@ -144,18 +176,39 @@ export function HomeLibrary() {
       return hay.includes(q);
     });
   }, [forms, query]);
+  const unusedForms = filtered.filter((form) => form.attempts.length === 0);
+  const usedForms = filtered.filter((form) => form.attempts.length > 0);
 
   async function startJob(intent: "start" | "prepare") {
     setError(null);
     try {
+      const count = intent === "prepare" ? Math.min(prepareCount, maxPrepareBatch, Math.max(1, room)) : 1;
       const res = await fetch(appPath("/api/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ difficulty, intent }),
+        credentials: "same-origin",
+        body: JSON.stringify({ difficulty, intent, count }),
       });
-      const data = (await res.json()) as { jobId?: string; job?: PrepJob; error?: string };
+      if (res.status === 401) {
+        window.location.assign(appPath("/login"));
+        return;
+      }
+      const data = (await res.json()) as {
+        jobId?: string;
+        job?: PrepJob;
+        jobs?: PrepJob[];
+        queued?: number;
+        error?: string;
+      };
       if (!res.ok || !data.jobId) throw new Error(data.error || "Could not start preparation");
-      if (data.job) setJobs((prev) => [data.job!, ...prev.filter((row) => row.id !== data.jobId)]);
+      if (data.jobs?.length) {
+        setJobs((prev) => {
+          const incoming = new Set(data.jobs!.map((job) => job.id));
+          return [...data.jobs!, ...prev.filter((row) => !incoming.has(row.id))];
+        });
+      } else if (data.job) {
+        setJobs((prev) => [data.job!, ...prev.filter((row) => row.id !== data.jobId)]);
+      }
       if (intent === "start") {
         setWaitStartId(data.jobId);
         setStartOpen(true);
@@ -171,7 +224,14 @@ export function HomeLibrary() {
   async function stopJob(jobId: string) {
     setError(null);
     try {
-      const res = await fetch(appPath(`/api/generate/${jobId}`), { method: "DELETE" });
+      const res = await fetch(appPath(`/api/generate/${jobId}`), {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (res.status === 401) {
+        window.location.assign(appPath("/login"));
+        return;
+      }
       const data = (await res.json()) as { job?: PrepJob; error?: string };
       if (!res.ok) throw new Error(data.error || "Could not stop preparation");
       if (data.job) setJobs((prev) => prev.map((row) => (row.id === jobId ? data.job! : row)));
@@ -227,8 +287,13 @@ export function HomeLibrary() {
     const res = await fetch(appPath("/api/sessions"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify(body),
     });
+    if (res.status === 401) {
+      window.location.assign(appPath("/login"));
+      return;
+    }
     const data = (await res.json()) as { sessionId?: string; error?: string };
     if (!res.ok || !data.sessionId) throw new Error(data.error || "Could not start");
     router.push(`/exam/${data.sessionId}`);
@@ -244,15 +309,15 @@ export function HomeLibrary() {
           </Link>
           <GhostButton
             onClick={() => {
-              void fetch(appPath("/api/auth/logout"), { method: "POST" }).then(() => {
+              void fetch(appPath("/api/auth/logout"), { method: "POST", credentials: "same-origin" }).then(() => {
                 window.location.href = appPath("/login");
               });
             }}
           >
             Sign out
           </GhostButton>
-          <PrimaryButton tone="accent" disabled={busy} onClick={() => setStartOpen(true)}>
-            {busy ? "Preparing…" : "Start new test"}
+          <PrimaryButton tone="accent" onClick={() => setStartOpen(true)}>
+            {busy ? "Preparing…" : "Start or prepare tests"}
           </PrimaryButton>
         </>
       }
@@ -260,9 +325,9 @@ export function HomeLibrary() {
       <div className="mb-8">
         <h1 className="text-3xl font-semibold tracking-tight">Your practice library</h1>
         <p className="muted mt-2 max-w-2xl text-sm leading-6">
-          Every new paper is unused for you. The app writes original items, assembles the paper, then builds audio.
-          A typical paper takes 2–6 minutes. It stops itself after {Math.round(jobLimitMs / 60000)} minutes, and you
-          can stop it any time. Prepare a test in advance if you do not want to wait when you sit down.
+          Every new paper is unused for you. You can prepare several papers in advance — they queue one at a time so
+          Gemini stays under its rate limit. A typical paper takes 2–6 minutes. You can hold up to {maxHeldPapers}{" "}
+          unused or queued papers. Start one of the unused papers when you sit down.
         </p>
       </div>
 
@@ -320,18 +385,43 @@ export function HomeLibrary() {
         className="field mb-5"
       />
 
+      {unusedForms.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-xl font-semibold">Unused papers ready ({unusedForms.length})</h2>
+          <p className="muted mb-4 text-sm">
+            These papers are already built. Start any one of them without waiting.
+          </p>
+          <div className="space-y-4">
+            {unusedForms.map((form) => (
+              <div key={form.id} className="panel p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="muted text-sm">{new Date(form.createdAt).toLocaleString()}</div>
+                    <div className="mt-1 font-medium">{form.topics.join(" · ") || "General academic"}</div>
+                    <div className="mt-1 text-xs font-semibold text-[#0f766e]">{difficultyLabel(form.difficulty)}</div>
+                    <div className="muted mt-2 text-sm">Prepared and unused — start whenever you want</div>
+                  </div>
+                  <PrimaryButton onClick={() => void startSession({ formId: form.id, mode: "new", scope: ["full"] })}>
+                    Start this paper
+                  </PrimaryButton>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <h2 className="mb-3 text-xl font-semibold">Every test result</h2>
 
-      {filtered.length === 0 && !busy && (
+      {usedForms.length === 0 && unusedForms.length === 0 && !busy && (
         <div className="panel muted p-8">
-          No saved tests yet. Start a new test, or prepare one for later so it is waiting when you are ready.
+          No saved tests yet. Start a new test, or prepare several for later so they are waiting when you are ready.
         </div>
       )}
 
       <div className="space-y-4">
-        {filtered.map((form) => {
+        {usedForms.map((form) => {
           const incomplete = form.attempts.find((a) => a.status === "in_progress" || a.status === "checkin");
-          const unused = form.attempts.length === 0;
           return (
             <div key={form.id} className="panel p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -340,17 +430,10 @@ export function HomeLibrary() {
                   <div className="mt-1 font-medium">{form.topics.join(" · ") || "General academic"}</div>
                   <div className="mt-1 text-xs font-semibold text-[#0f766e]">{difficultyLabel(form.difficulty)}</div>
                   <div className="muted mt-2 text-sm">
-                    {unused
-                      ? "Prepared and unused — start whenever you want"
-                      : `${form.attempts.length} sitting${form.attempts.length === 1 ? "" : "s"}${form.latestOverall != null ? " · scores below" : " · not finished yet"}`}
+                    {`${form.attempts.length} sitting${form.attempts.length === 1 ? "" : "s"}${form.latestOverall != null ? " · scores below" : " · not finished yet"}`}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {unused && (
-                    <PrimaryButton onClick={() => void startSession({ formId: form.id, mode: "new", scope: ["full"] })}>
-                      Start this paper
-                    </PrimaryButton>
-                  )}
                   {incomplete && (
                     <PrimaryButton onClick={() => router.push(`/exam/${incomplete.id}`)}>Resume</PrimaryButton>
                   )}
@@ -363,16 +446,12 @@ export function HomeLibrary() {
                       Review latest
                     </GhostButton>
                   )}
-                  {!unused && (
-                    <>
-                      <GhostButton onClick={() => void startSession({ formId: form.id, mode: "retake", scope: ["full"] })}>
-                        Retake full
-                      </GhostButton>
-                      <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: form.attempts[0]?.id })}>
-                        Redo parts
-                      </GhostButton>
-                    </>
-                  )}
+                  <GhostButton onClick={() => void startSession({ formId: form.id, mode: "retake", scope: ["full"] })}>
+                    Retake full
+                  </GhostButton>
+                  <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: form.attempts[0]?.id })}>
+                    Redo parts
+                  </GhostButton>
                 </div>
               </div>
               <div className="mt-2 space-y-4">
@@ -424,12 +503,11 @@ export function HomeLibrary() {
       {startOpen && (
         <div className="app-modal">
           <div className="panel w-full max-w-xl p-6">
-            <h2 className="mb-2 text-xl font-semibold">New unused test</h2>
+            <h2 className="mb-2 text-xl font-semibold">New unused tests</h2>
             <p className="muted mb-4 text-sm leading-6">
-              The app will not reuse a question you have already seen. It writes original items, builds the unused
-              paper, then creates audio. That usually takes 2–6 minutes and stops automatically after{" "}
-              {Math.round(jobLimitMs / 60000)} minutes. You can stop it any time. Prepare for later if you want the
-              wait to happen now and the sitting to start instantly next time.
+              Papers are unused for you. You can queue several; they build one after another. Each usually takes 2–6
+              minutes and stops after {Math.round(jobLimitMs / 60000)} minutes. You currently have {heldCount} of{" "}
+              {maxHeldPapers} unused or queued papers.
             </p>
             {!llmReady && (
               <p className="app-notice-warn mb-4 rounded-xl p-3 text-sm">
@@ -443,25 +521,50 @@ export function HomeLibrary() {
                 {renderJobProgress(waitJob)}
               </div>
             ) : (
-              <div className="space-y-2">
-                {DIFFICULTY_OPTIONS.map((option) => (
-                  <label
-                    key={option.id}
-                    className={`block rounded-xl border p-3 text-sm ${
-                      difficulty === option.id ? "border-[#0f766e] bg-[#ecfdf7]" : "border-[#d4ddd8]"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      className="mr-2"
-                      checked={difficulty === option.id}
-                      onChange={() => setDifficulty(option.id)}
-                      disabled={busy}
-                    />
-                    <span className="font-semibold">{option.label}</span>
-                    <p className="muted mt-1">{option.summary}</p>
-                  </label>
-                ))}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  {DIFFICULTY_OPTIONS.map((option) => (
+                    <label
+                      key={option.id}
+                      className={`block rounded-xl border p-3 text-sm ${
+                        difficulty === option.id ? "border-[#0f766e] bg-[#ecfdf7]" : "border-[#d4ddd8]"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        className="mr-2"
+                        checked={difficulty === option.id}
+                        onChange={() => setDifficulty(option.id)}
+                        disabled={starting}
+                      />
+                      <span className="font-semibold">{option.label}</span>
+                      <p className="muted mt-1">{option.summary}</p>
+                    </label>
+                  ))}
+                </div>
+                <div>
+                  <p className="mb-2 text-sm font-semibold">How many to prepare for later</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: maxPrepareBatch }, (_, index) => index + 1).map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        disabled={count > room}
+                        onClick={() => setPrepareCount(count)}
+                        className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                          prepareCount === count ? "border-[#0f766e] bg-[#ecfdf7]" : "border-[#d4ddd8]"
+                        }`}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="muted mt-2 text-xs">
+                    {room < 1
+                      ? "Start or stop a paper before queueing more."
+                      : `You can queue ${Math.min(prepareCount, room)} more now. Extra papers wait in line.`}
+                  </p>
+                </div>
               </div>
             )}
             <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -473,10 +576,14 @@ export function HomeLibrary() {
               )}
               {!waitJob && (
                 <>
-                  <GhostButton disabled={busy} onClick={() => void startJob("prepare")}>
-                    Prepare for later
+                  <GhostButton disabled={room < 1} onClick={() => void startJob("prepare")}>
+                    Prepare {Math.min(prepareCount, Math.max(1, room))} for later
                   </GhostButton>
-                  <PrimaryButton tone="accent" disabled={busy} onClick={() => void startJob("start")}>
+                  <PrimaryButton
+                    tone="accent"
+                    disabled={starting || room < 1}
+                    onClick={() => void startJob("start")}
+                  >
                     Start {difficultyLabel(difficulty)} when ready
                   </PrimaryButton>
                 </>

@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import { BASE_PATH } from "./base-path";
 import { prisma } from "./db";
 
 const COOKIE = "toefl_auth";
@@ -87,7 +86,7 @@ export function authCookie(token: string, secure = false) {
     value: token,
     httpOnly: true,
     sameSite: "lax" as const,
-    path: BASE_PATH,
+    path: "/",
     maxAge: 60 * 60 * 24 * 30,
     secure,
   };

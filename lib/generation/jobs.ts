@@ -38,6 +38,8 @@ export type PrepJob = {
 const JOBS_PATH = path.join(DATA_DIR, "prep-jobs.json");
 export const PREP_JOB_LIMIT_MS = 12 * 60 * 1000;
 export const PREP_STALE_MS = 4 * 60 * 1000;
+export const MAX_PREPARE_BATCH = 5;
+export const MAX_HELD_PAPERS = 8;
 const MAX_LOG = 24;
 const tails = new Map<string, Promise<void>>();
 const controllers = new Map<string, AbortController>();
@@ -151,10 +153,26 @@ function updateJob(id: string, patch: Partial<PrepJob>) {
   saveFile(file);
 }
 
+export function inflightJobCount(userId: string) {
+  const file = loadFile();
+  if (closeStaleJobs(file)) saveFile(file);
+  return file.jobs.filter(
+    (job) => job.userId === userId && (job.status === "queued" || job.status === "running"),
+  ).length;
+}
+
 export function enqueuePrepJob(userId: string, difficulty: ExamDifficulty, intent: PrepIntent): PrepJob {
   const file = loadFile();
   closeStaleJobs(file);
+  const ahead = file.jobs.filter(
+    (job) => job.userId === userId && (job.status === "queued" || job.status === "running"),
+  ).length;
   const now = nowIso();
+  const queued = ahead > 0;
+  const stage = queued ? `Waiting behind ${ahead} paper${ahead === 1 ? "" : "s"}` : "Waiting to start";
+  const detail = queued
+    ? "This paper will start when the one ahead finishes. You can stop it any time."
+    : "The paper is queued. You can stop it any time.";
   const job: PrepJob = {
     id: randomBytes(9).toString("hex"),
     userId,
@@ -162,9 +180,9 @@ export function enqueuePrepJob(userId: string, difficulty: ExamDifficulty, inten
     intent,
     status: "queued",
     progress: 1,
-    stage: "Waiting to start",
-    detail: "The paper is queued. You can stop it any time.",
-    log: [{ at: now, progress: 1, stage: "Waiting to start", detail: "The paper is queued. You can stop it any time." }],
+    stage,
+    detail,
+    log: [{ at: now, progress: 1, stage, detail }],
     deadlineAt: new Date(Date.now() + PREP_JOB_LIMIT_MS).toISOString(),
     createdAt: now,
     updatedAt: now,
