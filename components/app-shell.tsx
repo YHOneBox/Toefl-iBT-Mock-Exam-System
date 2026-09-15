@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { appPath } from "@/lib/base-path";
 import { ActivityLogControl } from "./activity-log-control";
 
 export function AppShell({
@@ -18,7 +19,13 @@ export function AppShell({
       <header className="app-topbar">
         <div className="app-brand-row">
           <Link href={brandHref} className="app-brand">
-            <span className="app-brand-mark">iBT</span>
+            <img
+              src={`${appPath("/logo.png")}?v=2`}
+              alt="TOEFL iBT Mock Exam System"
+              className="app-brand-logo"
+              width={44}
+              height={44}
+            />
             <span className="app-brand-copy">
               <strong>Practice studio</strong>
               <small>Enhanced TOEFL mock</small>

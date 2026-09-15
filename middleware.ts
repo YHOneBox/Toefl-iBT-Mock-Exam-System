@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { appPath } from "./lib/base-path";
 
-const PUBLIC = [/^\/login$/, /^\/register$/, /^\/api\/auth\//];
+const PUBLIC = [
+  /^\/login$/,
+  /^\/register$/,
+  /^\/api\/auth\//,
+  /^\/logo\.png$/,
+  /^\/icon(\.png)?$/,
+  /^\/apple-icon(\.png)?$/,
+  /^\/favicon\.ico$/,
+];
 
 function publicOrigin(request: NextRequest) {
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
@@ -45,5 +53,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/", "/((?!_next/static|_next/image|favicon.ico|logo.png|icon.png|apple-icon.png).*)"],
 };

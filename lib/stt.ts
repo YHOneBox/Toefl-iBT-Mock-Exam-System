@@ -5,6 +5,10 @@ type SttAttempt = {
   transcribe: (buf: Buffer, filename: string) => Promise<string>;
 };
 
+/** Whisper decoder prefix: English-only TOEFL speech, not a chat instruction. */
+const ENGLISH_PROMPT =
+  "This is a TOEFL iBT speaking response in English. The student answers using English words only.";
+
 function pathName(filePath: string): string {
   return filePath.replaceAll("\\", "/").split("/").pop() || "audio.webm";
 }
@@ -13,18 +17,29 @@ function unique(values: Array<string | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
+/** Keep Latin letters, numbers, and English punctuation. Drop Chinese and other scripts. */
+export function englishWordsOnly(text: string): string {
+  const words = text
+    .normalize("NFKC")
+    .match(/[A-Za-z]+(?:['’][A-Za-z]+)?(?:-[A-Za-z]+)*|[0-9]+(?:[.,][0-9]+)?/g);
+  if (!words?.length) return "";
+  return words.join(" ").trim();
+}
+
 async function transcribeOpenAiCompatible(opts: {
   url: string;
   apiKey: string;
   model: string;
   buf: Buffer;
   filename: string;
-  language?: string;
 }): Promise<string> {
   const form = new FormData();
   form.append("model", opts.model);
   form.append("file", new Blob([new Uint8Array(opts.buf)]), opts.filename);
-  if (opts.language) form.append("language", opts.language);
+  form.append("language", "en");
+  form.append("prompt", ENGLISH_PROMPT);
+  form.append("temperature", "0");
+  form.append("response_format", "verbose_json");
   const res = await fetch(opts.url, {
     method: "POST",
     headers: { Authorization: `Bearer ${opts.apiKey}` },
@@ -32,12 +47,23 @@ async function transcribeOpenAiCompatible(opts: {
     body: form,
   });
   if (!res.ok) throw new Error(`${opts.model} ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { text?: string };
-  return (data.text || "").trim();
+  const data = (await res.json()) as {
+    text?: string;
+    language?: string;
+    segments?: Array<{ text?: string }>;
+  };
+  const raw = (data.text || data.segments?.map((seg) => seg.text || "").join(" ") || "").trim();
+  if (data.language && !/^en/i.test(data.language)) return "";
+  return englishWordsOnly(raw);
 }
 
 function groqModels() {
-  return unique([process.env.GROQ_WHISPER_MODEL, "whisper-large-v3-turbo", "whisper-large-v3"]);
+  return unique([
+    "distil-whisper-large-v3-en",
+    process.env.GROQ_WHISPER_MODEL,
+    "whisper-large-v3-turbo",
+    "whisper-large-v3",
+  ]);
 }
 
 function sttProviders(): SttAttempt[] {
@@ -56,7 +82,6 @@ function sttProviders(): SttAttempt[] {
               model,
               buf,
               filename,
-              language: "en",
             });
           } catch (err) {
             last = err instanceof Error ? err.message : String(err);

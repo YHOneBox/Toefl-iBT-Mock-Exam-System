@@ -187,7 +187,7 @@ export function GeminiSettings() {
           Each signed-in account has its own order. Drag rows to change try order. Generation follows this
           list from top to bottom on the primary Gemini key. If that key hits its AI Studio daily limit,
           the same order is retried on GEMINI_API_KEY_FALLBACK. OpenAI stays last if it is configured.
-          Speaking recordings are transcribed with Groq Whisper, then OpenAI Whisper if Groq is unavailable.
+          Speaking recordings are transcribed with Groq Whisper in English only, then OpenAI Whisper if Groq is unavailable.
         </p>
       </div>
 

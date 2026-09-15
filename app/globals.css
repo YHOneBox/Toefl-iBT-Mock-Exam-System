@@ -319,17 +319,13 @@ textarea {
   min-width: 0;
 }
 
-.app-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 10px;
-  background: #f97316;
-  color: #fff;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+.app-brand-logo {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: #fff;
+  object-fit: cover;
 }
 
 .app-brand-copy {
