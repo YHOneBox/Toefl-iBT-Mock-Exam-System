@@ -1,8 +1,199 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { InterviewItem, RepeatItem } from "@/lib/types";
+import type { AudioRef, InterviewItem, RepeatItem } from "@/lib/types";
+import { applyPlaybackGain } from "@/lib/playback-gain";
+import { useShowAnswer } from "../exam/answer-reveal";
 import { PlayOnceAudio, RecordingPlayer } from "../audio-play";
+import { useVoice } from "../voice/voice-context";
+
+function recorderMime() {
+  const types = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
+  return types.find((type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type));
+}
+
+const MIC_CHECK_LINE = "Testing, one, two, three.";
+const MIC_CHECK_SECONDS = 6;
+
+export function MicCheck({ onReady }: { onReady?: () => void }) {
+  const { prefs } = useVoice();
+  const [level, setLevel] = useState(0);
+  const [recording, setRecording] = useState(false);
+  const [left, setLeft] = useState(MIC_CHECK_SECONDS);
+  const [playing, setPlaying] = useState(false);
+  const [sampleUrl, setSampleUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [micReady, setMicReady] = useState(false);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunks = useRef<Blob[]>([]);
+  const timer = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const readySent = useRef(false);
+
+  useEffect(() => {
+    let raf = 0;
+    let ctx: AudioContext | undefined;
+    let cancelled = false;
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        setMicReady(true);
+        ctx = new AudioContext();
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const loop = () => {
+          analyser.getByteFrequencyData(data);
+          setLevel(Math.min(100, data.reduce((sum, value) => sum + value, 0) / data.length));
+          raf = requestAnimationFrame(loop);
+        };
+        loop();
+      })
+      .catch(() => setError("Allow the microphone, then record a sample."));
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      if (timer.current) window.clearInterval(timer.current);
+      if (recRef.current && recRef.current.state !== "inactive") recRef.current.stop();
+      audioRef.current?.pause();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      ctx?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (sampleUrl) URL.revokeObjectURL(sampleUrl);
+    };
+  }, [sampleUrl]);
+
+  function stopPlayback() {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setPlaying(false);
+  }
+
+  function keepSample(blob: Blob) {
+    setSampleUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(blob);
+    });
+    if (!readySent.current) {
+      readySent.current = true;
+      onReady?.();
+    }
+  }
+
+  function startRecording() {
+    const stream = streamRef.current;
+    if (!stream || recording) return;
+    stopPlayback();
+    const mime = recorderMime();
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    recRef.current = rec;
+    chunks.current = [];
+    rec.ondataavailable = (event) => {
+      if (event.data.size) chunks.current.push(event.data);
+    };
+    rec.onstop = () => {
+      const blob = new Blob(chunks.current, { type: rec.mimeType || "audio/webm" });
+      if (blob.size > 0) keepSample(blob);
+      setRecording(false);
+    };
+    rec.start();
+    setRecording(true);
+    setLeft(MIC_CHECK_SECONDS);
+    const started = Date.now();
+    if (timer.current) window.clearInterval(timer.current);
+    timer.current = window.setInterval(() => {
+      const remain = MIC_CHECK_SECONDS - Math.floor((Date.now() - started) / 1000);
+      setLeft(Math.max(0, remain));
+      if (remain <= 0) stopRecording();
+    }, 200);
+  }
+
+  function stopRecording() {
+    if (timer.current) window.clearInterval(timer.current);
+    if (recRef.current && recRef.current.state !== "inactive") recRef.current.stop();
+    setRecording(false);
+  }
+
+  async function playSample() {
+    if (!sampleUrl || recording) return;
+    stopPlayback();
+    const el = new Audio(sampleUrl);
+    audioRef.current = el;
+    applyPlaybackGain(el, prefs.volume);
+    setPlaying(true);
+    el.onended = () => setPlaying(false);
+    el.onerror = () => {
+      setPlaying(false);
+      setError("Could not play that sample. Record again.");
+    };
+    await el.play().catch(() => {
+      setPlaying(false);
+      setError("Could not play that sample. Record again.");
+    });
+  }
+
+  return (
+    <div className="panel mx-auto max-w-xl p-8">
+      <h1 className="mb-3 text-2xl font-semibold">Microphone check</h1>
+      <p className="mb-4 text-sm leading-6">
+        Say this sentence in a normal speaking voice, then play it back. Record again until it sounds clear
+        enough.
+      </p>
+      <p className="mb-5 rounded-lg bg-[#eef4f2] px-4 py-3 text-lg font-semibold leading-7">
+        “{MIC_CHECK_LINE}”
+      </p>
+      <div className="h-3 w-full max-w-xs overflow-hidden rounded bg-[#d5dbe3]">
+        <div className="h-full bg-[#2b6cb0]" style={{ width: `${level}%` }} />
+      </div>
+      <p className="muted mt-2 text-sm">{recording ? `Recording… ${left}s` : "The meter should move when you speak."}</p>
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={!micReady || recording}
+          onClick={startRecording}
+          className="rounded bg-[#9b2c2c] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {sampleUrl ? "Record again" : "Record"}
+        </button>
+        <button
+          type="button"
+          disabled={!recording}
+          onClick={stopRecording}
+          className="rounded border px-4 py-2 text-sm disabled:opacity-50"
+        >
+          Stop
+        </button>
+        <button
+          type="button"
+          disabled={!sampleUrl || recording || playing}
+          onClick={() => void playSample()}
+          className="rounded bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {playing ? "Playing…" : "Play sample"}
+        </button>
+      </div>
+      {sampleUrl && (
+        <p className="mt-4 text-sm text-[#0f766e]">
+          Play the sample. If it is quiet or unclear, record again. Continue when it sounds good enough.
+        </p>
+      )}
+      {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+    </div>
+  );
+}
 
 export function MicMeter({ active }: { active: boolean }) {
   const [level, setLevel] = useState(0);
@@ -71,7 +262,8 @@ export function Recorder({
   async function start() {
     if (disabled || recording) return;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const rec = new MediaRecorder(stream);
+    const mime = recorderMime();
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
     recRef.current = rec;
     chunks.current = [];
     rec.ondataavailable = (e) => {
@@ -132,6 +324,44 @@ export function Recorder({
   );
 }
 
+export function ScenarioIntro({
+  title,
+  setting,
+  script,
+  audio,
+  onReady,
+}: {
+  title: string;
+  setting: string;
+  script: string;
+  audio?: AudioRef;
+  onReady?: () => void;
+}) {
+  const clip = audio || {
+    script,
+    accent: "us" as const,
+    gender: "female" as const,
+    fallbackTts: true,
+    rate: 0.95,
+  };
+  return (
+    <div className="panel mx-auto max-w-3xl p-6">
+      <p className="mb-1 text-sm text-[#5b6775]">{title}</p>
+      <h2 className="mb-3 text-lg font-semibold">{setting}</h2>
+      <p className="mb-4 leading-6">{script}</p>
+      <PlayOnceAudio
+        itemKey={`intro:${title}:${script.slice(0, 40)}`}
+        audio={clip}
+        hideScript
+        allowReplay
+        label="Play intro"
+        onEnded={() => onReady?.()}
+      />
+      <p className="mt-4 text-sm text-[#5b6775]">Play the prepared intro, then continue.</p>
+    </div>
+  );
+}
+
 export function RepeatTask({
   item,
   index,
@@ -153,6 +383,7 @@ export function RepeatTask({
   transcript?: string | null;
   onReady?: () => void;
 }) {
+  const showKey = useShowAnswer(review);
   const [heard, setHeard] = useState(Boolean(review));
 
   useEffect(() => {
@@ -176,7 +407,7 @@ export function RepeatTask({
       <PlayOnceAudio
         itemKey={item.id}
         audio={item.audio}
-        hideScript={!review}
+        hideScript={!showKey}
         allowReplay={Boolean(review)}
         label="Play sentence"
         onEnded={() => setHeard(true)}
@@ -200,9 +431,14 @@ export function RepeatTask({
       )}
       {review && (
         <div className="mt-4 space-y-2">
-          <p className="text-sm">Target: {item.sentence}</p>
+          {showKey && <p className="text-sm">Target: {item.sentence}</p>}
           <p className="text-sm text-[#5b6775]">Transcript: {transcript || "—"}</p>
           <RecordingPlayer path={recordingPath} />
+        </div>
+      )}
+      {showKey && !review && (
+        <div className="mt-4">
+          <p className="text-sm">Target: {item.sentence}</p>
         </div>
       )}
     </div>
@@ -226,6 +462,7 @@ export function InterviewTask({
   transcript?: string | null;
   onReady?: () => void;
 }) {
+  const showKey = useShowAnswer(review);
   const [heard, setHeard] = useState(Boolean(review));
 
   useEffect(() => {
@@ -246,7 +483,7 @@ export function InterviewTask({
       <PlayOnceAudio
         itemKey={item.id}
         audio={item.audio}
-        hideScript={!review}
+        hideScript={!showKey}
         allowReplay={Boolean(review)}
         label="Play question"
         onEnded={() => setHeard(true)}

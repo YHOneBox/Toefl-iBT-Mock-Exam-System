@@ -18,6 +18,7 @@ import { AcademicTask, CompleteTheWordsTask, DailyLifeTask } from "../tasks/read
 import { ListenChooseTask, SpokenSetTask } from "../tasks/listening";
 import { DiscussionTaskView, EmailTaskView, SentenceBuilder } from "../tasks/writing";
 import { InterviewTask, RepeatTask } from "../tasks/speaking";
+import { ScoringWait } from "../exam/scoring-wait";
 
 export function ReviewApp({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<ClientSession | null>(null);
@@ -53,6 +54,13 @@ export function ReviewApp({ sessionId }: { sessionId: string }) {
     return (
       <AppShell>
         <p className="muted">Loading review…</p>
+      </AppShell>
+    );
+  }
+  if (session.status === "scoring" || session.currentPointer === "scoring") {
+    return (
+      <AppShell>
+        <ScoringWait sessionId={sessionId} onComplete={setSession} />
       </AppShell>
     );
   }

@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     const session = await createSession({
       formId: body.formId,
       mode: body.mode,
-      scope: body.scope?.length ? body.scope : ["full"],
+      scope: body.scope,
       sourceSessionId: body.sourceSessionId,
       allowReadapt: body.allowReadapt,
       userId: user.id,

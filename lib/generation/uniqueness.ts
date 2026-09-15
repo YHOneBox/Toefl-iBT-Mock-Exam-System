@@ -253,6 +253,8 @@ function collectAudioPaths(form: TestFormPayload): string[] {
   }
   form.speaking.listenRepeat.items.forEach((item, index) => add(`Listen and Repeat ${index + 1}`, item.audio.path));
   form.speaking.interview.items.forEach((item, index) => add(`Interview ${index + 1}`, item.audio.path));
+  add("Listen and Repeat intro", form.speaking.listenRepeat.scenarioAudio?.path);
+  add("Interview intro", form.speaking.interview.scenarioAudio?.path);
   for (const [path, wheres] of byPath) {
     const unique = [...new Set(wheres)];
     if (unique.length > 1) errors.push(`Duplicate audio file ${path}: ${unique.join(" | ")}`);

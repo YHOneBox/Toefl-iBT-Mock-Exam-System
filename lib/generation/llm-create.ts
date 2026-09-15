@@ -1,7 +1,8 @@
 import { generateJson, type LlmJsonOptions } from "../llm";
 import { defaultInsertPositions, splitSentences } from "../passage";
 import { contentKey, isSeenKey } from "./content-key";
-import type { Cefr, ExamDifficulty, McqQuestion, TestFormPayload } from "../types";
+import type { Cefr, ExamDifficulty, McqQuestion, ScopePart, TestFormPayload } from "../types";
+import { taskEnabled } from "../scope";
 import {
   checkAcademicSeed,
   checkChooseSeed,
@@ -428,10 +429,38 @@ const UNIQUENESS_CYCLE = [
   "speaking",
 ];
 
-function batchIdsForFocus(focus?: string, round = 0): Set<string> | null {
+function batchesAllowedForScope(scope?: ScopePart[]): Set<string> | null {
+  if (!scope?.length) return null;
+  const ids = new Set<string>();
+  if (taskEnabled(scope, "reading", "complete_the_words")) ids.add("reading");
+  if (taskEnabled(scope, "reading", "read_daily_life")) ids.add("daily");
+  if (taskEnabled(scope, "reading", "read_academic")) ids.add("academic");
+  if (taskEnabled(scope, "listening", "listen_choose_response")) ids.add("listen-choose");
+  if (
+    taskEnabled(scope, "listening", "listen_conversation") ||
+    taskEnabled(scope, "listening", "listen_announcement") ||
+    taskEnabled(scope, "listening", "listen_academic_talk")
+  ) {
+    ids.add("listening-sets");
+  }
+  if (taskEnabled(scope, "writing", "build_sentence")) ids.add("sentences");
+  if (taskEnabled(scope, "writing", "write_email") || taskEnabled(scope, "writing", "write_discussion")) {
+    ids.add("writing-prompts");
+  }
+  if (taskEnabled(scope, "speaking", "listen_repeat") || taskEnabled(scope, "speaking", "take_interview")) {
+    ids.add("speaking");
+  }
+  return ids;
+}
+
+function batchIdsForFocus(focus?: string, round = 0, allowed?: Set<string> | null): Set<string> | null {
   if (!focus) return null;
   if (focus === "uniqueness" || focus === "valid-paper") {
-    return new Set([UNIQUENESS_CYCLE[round % UNIQUENESS_CYCLE.length]]);
+    for (let i = 0; i < UNIQUENESS_CYCLE.length; i += 1) {
+      const id = UNIQUENESS_CYCLE[(round + i) % UNIQUENESS_CYCLE.length];
+      if (!allowed?.size || allowed.has(id)) return new Set([id]);
+    }
+    return allowed?.size ? new Set(allowed) : new Set([UNIQUENESS_CYCLE[round % UNIQUENESS_CYCLE.length]]);
   }
   const mapped = FOCUS_BATCHES[focus];
   return mapped ? new Set(mapped) : null;
@@ -450,6 +479,8 @@ export async function createFreshItems(
     seen?: Set<string>;
     userId?: string;
     onWait?: LlmJsonOptions["onWait"];
+    scope?: ScopePart[];
+    subjects?: string[];
   },
 ): Promise<{ bank: GrownBank; added: number; focus?: string }> {
   const existing = loadGrownBank();
@@ -468,6 +499,8 @@ export async function createFreshItems(
   const discN = scale === 2 ? 3 : 2;
   const retry = 2;
   const onWait = opts?.onWait;
+  const subjects = opts?.subjects || [];
+  const allowed = batchesAllowedForScope(opts?.scope);
 
   type Batch = { id: string; label: string; run: () => Promise<void> };
   const batches: Batch[] = [
@@ -477,7 +510,7 @@ export async function createFreshItems(
       run: async () => {
         const items = await withRetry(
           (err) =>
-            `${retrieveItemContext("ctw", difficulty, avoid)}
+            `${retrieveItemContext("ctw", difficulty, avoid, subjects)}
 Write ${ctwN} original Complete the Words passages.
 Each passage: 70-100 words, at least 3 sentences, first sentence complete, 10 later words that can lose their second half.
 JSON: {"passages":[{"topic":"","text":""}]}
@@ -498,7 +531,7 @@ ${retryNote(err)}`,
       run: async () => {
         const items = await withRetry(
           (err) =>
-            `${retrieveItemContext("daily", difficulty, avoid)}
+            `${retrieveItemContext("daily", difficulty, avoid, subjects)}
 Write ${dailyN} original Read in Daily Life texts (15-150 words). Include at least two texts with 3 questions; the rest may have 2.
 JSON: {"items":[{"cefr":"B1","topic":"Campus life","format":"email","title":"","text":"","questions":[{"stem":"","options":["","","",""],"answerKey":0,"rationale":"","skill":"factual"}]}]}
 ${retryNote(err)}`,
@@ -518,7 +551,7 @@ ${retryNote(err)}`,
       run: async () => {
         const item = await withRetry(
           (err) =>
-            `${retrieveItemContext("academic", difficulty, avoid)}
+            `${retrieveItemContext("academic", difficulty, avoid, subjects)}
 Write 1 original academic reading passage of 180-220 words and exactly 5 questions.
 Question mix: factual, vocabulary, inference, insert-text, and either rhetorical purpose or select-the-sentence.
 The insert-text question MUST include insertSentence and insertPositions (4 sentence indexes after which a black square appears) and answerKey 0-3.
@@ -541,7 +574,7 @@ ${retryNote(err)}`,
       run: async () => {
         const items = await withRetry(
           (err) =>
-            `${retrieveItemContext("choose", difficulty, avoid)}
+            `${retrieveItemContext("choose", difficulty, avoid, subjects)}
 Write ${chooseN} original Listen and Choose a Response items. Script is a spoken campus question or statement (8-30 words), never the printed stem.
 JSON: {"items":[{"cefr":"B1","skill":"social response","script":"","options":["","","",""],"answerKey":0,"rationale":""}]}
 ${retryNote(err)}`,
@@ -561,7 +594,7 @@ ${retryNote(err)}`,
       run: async () => {
         const bundle = await withRetry(
           (err) =>
-            `${retrieveItemContext("talk", difficulty, avoid)}
+            `${retrieveItemContext("talk", difficulty, avoid, subjects)}
 Write original listening sets:
 - ${talkN} academic talks, 175-250 words, 4 questions each, professor only
 - ${convN} campus conversations, 35-100 words, two speakers, 2 questions each
@@ -600,7 +633,7 @@ ${retryNote(err)}`,
       run: async () => {
         const items = await withRetry(
           (err) =>
-            `${retrieveItemContext("sentence", difficulty, avoid)}
+            `${retrieveItemContext("sentence", difficulty, avoid, subjects)}
 Write ${sentN} original Build a Sentence items. Each has a short A/B campus exchange plus tokens that exactly match the answer words.
 JSON: {"items":[{"cefr":"B1","exchange":"A: ...\\nB:","tokens":[],"answer":[],"rationale":""}]}
 ${retryNote(err)}`,
@@ -620,7 +653,7 @@ ${retryNote(err)}`,
       run: async () => {
         const bundle = await withRetry(
           (err) =>
-            `${retrieveItemContext("email", difficulty, avoid)}
+            `${retrieveItemContext("email", difficulty, avoid, subjects)}
 Write original unused writing prompts for enhanced TOEFL iBT:
 - ${emailN} Write an Email scenarios (campus situation, audience, goal, and a 90-130 word sample student email)
 - ${discN} Academic Discussion threads (course name, professor question, two student posts, and a reply prompt)
@@ -655,7 +688,7 @@ ${retryNote(err)}`,
       run: async () => {
         const bundle = await withRetry(
           (err) =>
-            `${retrieveItemContext("speaking", difficulty, avoid)}
+            `${retrieveItemContext("speaking", difficulty, avoid, subjects)}
 Write original speaking seeds:
 - 1 Listen and Repeat scenario with exactly 7 sentences that get longer
 - 1 interview: scenario, interviewer name, 4 questions (fact, reaction, opinion, policy)
@@ -686,8 +719,12 @@ ${retryNote(err)}`,
     },
   ];
 
-  const wanted = batchIdsForFocus(opts?.focus, opts?.round || 0);
-  const selected = wanted?.size ? batches.filter((batch) => wanted.has(batch.id)) : batches;
+  const wanted = batchIdsForFocus(opts?.focus, opts?.round || 0, allowed);
+  const selected = batches.filter((batch) => {
+    if (allowed && !allowed.has(batch.id)) return false;
+    if (wanted?.size) return wanted.has(batch.id);
+    return true;
+  });
 
   for (const batch of selected) {
     if (signal?.aborted) break;

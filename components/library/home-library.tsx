@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { appPath } from "@/lib/base-path";
 import { DIFFICULTY_OPTIONS, difficultyLabel } from "@/lib/generation/difficulty";
-import { allScopeOptions, describeScope } from "@/lib/scope";
-import type { ExamDifficulty, ScopePart } from "@/lib/types";
+import { availableScopeOptions, describeScope, describeSubjects, normalizeScope, sectionEnabled, SUBJECT_OPTIONS } from "@/lib/scope";
+import type { ExamDifficulty, ScopePart, SectionName } from "@/lib/types";
 import { AppShell } from "../app-shell";
 import { GhostButton, PrimaryButton } from "../ui";
 import { AttemptScoreSummary, LibraryOverview, type DashboardForm } from "./results-dashboard";
+import { SECTION_ORDER, SECTION_UI, SectionPills, sectionsFromScope } from "./section-marks";
 
 type PrepLogEntry = {
   at: string;
@@ -22,6 +23,8 @@ type PrepJob = {
   id: string;
   difficulty?: string;
   intent: "start" | "prepare";
+  scope?: ScopePart[];
+  subjects?: string[];
   status: "queued" | "running" | "ready" | "failed" | "cancelled";
   progress: number;
   stage: string;
@@ -66,9 +69,13 @@ export function HomeLibrary() {
   const [jobLimitMs, setJobLimitMs] = useState(12 * 60 * 1000);
   const [nowTick, setNowTick] = useState(0);
   const [prepareCount, setPrepareCount] = useState(1);
+  const [prepSections, setPrepSections] = useState<SectionName[]>(["reading", "listening", "writing", "speaking"]);
+  const [prepSubjects, setPrepSubjects] = useState<string[]>([]);
   const [maxHeldPapers, setMaxHeldPapers] = useState(8);
   const [maxPrepareBatch, setMaxPrepareBatch] = useState(5);
   const [unusedCount, setUnusedCount] = useState(0);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [sectionFilter, setSectionFilter] = useState<SectionName | "all">("all");
   const busy = jobs.some((job) => job.status === "queued" || job.status === "running");
   const starting = jobs.some(
     (job) => job.intent === "start" && (job.status === "queued" || job.status === "running"),
@@ -172,12 +179,29 @@ export function HomeLibrary() {
     const q = query.trim().toLowerCase();
     if (!q) return forms;
     return forms.filter((f) => {
-      const hay = `${f.topics.join(" ")} ${f.attempts.map((a) => a.scopeLabel).join(" ")}`.toLowerCase();
+      const hay = `${f.topics.join(" ")} ${f.scopeLabel || ""} ${f.subjectsLabel || ""} ${f.attempts.map((a) => a.scopeLabel).join(" ")}`.toLowerCase();
       return hay.includes(q);
     });
   }, [forms, query]);
-  const unusedForms = filtered.filter((form) => form.attempts.length === 0);
-  const usedForms = filtered.filter((form) => form.attempts.length > 0);
+  function matchesSectionFilter(form: DashboardForm) {
+    if (sectionFilter === "all") return true;
+    return sectionsFromScope(form.scope).includes(sectionFilter);
+  }
+  const unusedForms = filtered.filter((form) => form.attempts.length === 0).filter(matchesSectionFilter);
+  const usedForms = filtered.filter((form) => form.attempts.length > 0).filter(matchesSectionFilter);
+  const redoForm = redo ? forms.find((form) => form.id === redo.formId) : null;
+  const redoScope = normalizeScope(redoForm?.scope);
+  const redoOptions = availableScopeOptions(redoScope);
+  const redoSections = SECTION_ORDER.filter((section) =>
+    redoOptions.some((option) => option.group === SECTION_UI[section].name),
+  );
+  const redoCanReadapt = sectionEnabled(redoScope, "reading") || sectionEnabled(redoScope, "listening");
+  const prepScope: ScopePart[] =
+    prepSections.length === 4
+      ? ["full"]
+      : (["reading", "listening", "writing", "speaking"] as SectionName[]).filter((section) =>
+          prepSections.includes(section),
+        );
 
   async function startJob(intent: "start" | "prepare") {
     setError(null);
@@ -187,7 +211,7 @@ export function HomeLibrary() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ difficulty, intent, count }),
+        body: JSON.stringify({ difficulty, intent, count, scope: prepScope, subjects: prepSubjects }),
       });
       if (res.status === 401) {
         window.location.assign(appPath("/login"));
@@ -264,6 +288,65 @@ export function HomeLibrary() {
     }
   }
 
+  async function removeResult(sessionId: string) {
+    if (
+      !window.confirm(
+        "Remove this sitting from your dashboard? Its scores will no longer count in the averages. You will not be able to review it later.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setRemoving(sessionId);
+    try {
+      const res = await fetch(appPath(`/api/sessions/${sessionId}`), {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (res.status === 401) {
+        window.location.assign(appPath("/login"));
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not remove this sitting");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove this sitting");
+    } finally {
+      setRemoving(null);
+    }
+  }
+
+  async function deletePaperAndResults(formId: string) {
+    if (
+      !window.confirm(
+        "Delete this paper and every sitting on it? Those scores leave the dashboard and cannot be reviewed later.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setRemoving(formId);
+    try {
+      const res = await fetch(appPath(`/api/forms/${formId}?withResults=1`), {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (res.status === 401) {
+        window.location.assign(appPath("/login"));
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not delete this paper");
+      await refresh();
+      setJobs((prev) => prev.filter((job) => job.formId !== formId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete this paper");
+    } finally {
+      setRemoving(null);
+    }
+  }
+
   async function stopJob(jobId: string) {
     setError(null);
     try {
@@ -323,7 +406,7 @@ export function HomeLibrary() {
   async function startSession(body: {
     formId: string;
     mode: "new" | "retake" | "redo";
-    scope: ScopePart[];
+    scope?: ScopePart[];
     sourceSessionId?: string;
     allowReadapt?: boolean;
   }) {
@@ -359,19 +442,25 @@ export function HomeLibrary() {
           >
             Sign out
           </GhostButton>
-          <PrimaryButton tone="accent" onClick={() => setStartOpen(true)}>
+          <PrimaryButton
+            tone="accent"
+            onClick={() => {
+              setPrepSections(["reading", "listening", "writing", "speaking"]);
+              setStartOpen(true);
+            }}
+          >
             {busy ? "Preparing…" : "Start or prepare tests"}
           </PrimaryButton>
         </>
       }
     >
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Your practice library</h1>
-        <p className="muted mt-2 max-w-2xl text-sm leading-6">
-          Every new paper is unused for you. You can prepare several papers in advance — they queue one at a time so
-          Gemini stays under its rate limit. A typical paper takes 2–6 minutes. You can hold up to {maxHeldPapers}{" "}
-          unused or queued papers. Start one of the unused papers when you sit down.
-        </p>
+      <div className="library-hero">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Practice library</h1>
+          <p className="muted mt-2 max-w-xl text-sm leading-6">
+            Start a full paper or one section. Unused papers stay ready — up to {maxHeldPapers} at a time.
+          </p>
+        </div>
       </div>
 
       {jobs
@@ -386,7 +475,7 @@ export function HomeLibrary() {
           return false;
         })
         .map((job) => (
-          <div key={job.id} className="app-notice panel mb-4 p-5">
+          <div key={job.id} className="app-notice panel job-banner mb-4 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-semibold">
@@ -398,14 +487,14 @@ export function HomeLibrary() {
                         ? "Preparing a test for later"
                         : "Preparing a new test"}
                   {job.difficulty ? ` · ${difficultyLabel(job.difficulty)}` : ""}
+                  {job.scope?.length ? ` · ${describeScope(job.scope)}` : ""}
+                  {job.subjects?.length ? ` · ${describeSubjects(job.subjects)}` : ""}
                 </p>
                 <p className="muted mt-1 text-sm">{job.stage}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {job.status === "ready" && job.formId && (
-                  <PrimaryButton
-                    onClick={() => void startSession({ formId: job.formId!, mode: "new", scope: ["full"] })}
-                  >
+                    <PrimaryButton onClick={() => void startSession({ formId: job.formId!, mode: "new", scope: job.scope })}>
                     Start this paper
                   </PrimaryButton>
                 )}
@@ -422,37 +511,38 @@ export function HomeLibrary() {
         ))}
       {error && <div className="mb-4 text-sm text-red-700">{error}</div>}
 
-      <LibraryOverview forms={filtered} />
-
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Filter by topic or section"
-        className="field mb-5"
+      <LibraryOverview
+        forms={filtered}
+        filter={sectionFilter}
+        onFilter={setSectionFilter}
+        onPracticeSection={(section) => {
+          setPrepSections([section]);
+          setStartOpen(true);
+        }}
       />
 
       {unusedForms.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-xl font-semibold">Unused papers ready ({unusedForms.length})</h2>
-          <p className="muted mb-4 text-sm">
-            These papers are already built. Start any one of them without waiting.
-          </p>
-          <div className="space-y-4">
+          <h2 className="mb-3 text-lg font-semibold">Ready to start ({unusedForms.length})</h2>
+          <div className="space-y-3">
             {unusedForms.map((form) => (
-              <div key={form.id} className="panel p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="muted text-sm">{new Date(form.createdAt).toLocaleString()}</div>
-                    <div className="mt-1 font-medium">{form.topics.join(" · ") || "General academic"}</div>
-                    <div className="mt-1 text-xs font-semibold text-[#0f766e]">{difficultyLabel(form.difficulty)}</div>
-                    <div className="muted mt-2 text-sm">Prepared and unused — start whenever you want</div>
+              <div key={form.id} className="paper-row panel">
+                <div className="paper-row-main">
+                  <div className="font-medium">{form.topics.join(" · ") || "General academic"}</div>
+                  <div className="muted mt-1 text-sm">
+                    {new Date(form.createdAt).toLocaleString()}
+                    {` · ${difficultyLabel(form.difficulty)}`}
+                    {form.subjectsLabel && form.subjectsLabel !== "Any subject" ? ` · ${form.subjectsLabel}` : ""}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <PrimaryButton onClick={() => void startSession({ formId: form.id, mode: "new", scope: ["full"] })}>
-                      Start this paper
-                    </PrimaryButton>
-                    <GhostButton onClick={() => void deleteUnused(form.id)}>Delete</GhostButton>
+                  <div className="mt-2">
+                    <SectionPills included={sectionsFromScope(form.scope)} />
                   </div>
+                </div>
+                <div className="paper-row-actions">
+                  <PrimaryButton onClick={() => void startSession({ formId: form.id, mode: "new", scope: form.scope as ScopePart[] | undefined })}>
+                    Start
+                  </PrimaryButton>
+                  <GhostButton onClick={() => void deleteUnused(form.id)}>Delete</GhostButton>
                 </div>
               </div>
             ))}
@@ -460,84 +550,109 @@ export function HomeLibrary() {
         </section>
       )}
 
-      <h2 className="mb-3 text-xl font-semibold">Every test result</h2>
+      <div className="library-results-head">
+        <h2 className="text-lg font-semibold">Results</h2>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search topics"
+          className="field library-search"
+        />
+      </div>
 
       {usedForms.length === 0 && unusedForms.length === 0 && !busy && (
         <div className="panel muted p-8">
-          No saved tests yet. Start a new test, or prepare several for later so they are waiting when you are ready.
+          {sectionFilter !== "all" || query.trim()
+            ? "No papers match this section filter. Clear the filter or prepare a paper in that category."
+            : "No saved tests yet. Start a new test, or prepare several for later so they are waiting when you are ready."}
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {usedForms.map((form) => {
           const incomplete = form.attempts.find((a) => a.status === "in_progress" || a.status === "checkin");
+          const latestDone = form.attempts.find((a) => a.status === "completed");
           return (
-            <div key={form.id} className="panel p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="muted text-sm">{new Date(form.createdAt).toLocaleString()}</div>
-                  <div className="mt-1 font-medium">{form.topics.join(" · ") || "General academic"}</div>
-                  <div className="mt-1 text-xs font-semibold text-[#0f766e]">{difficultyLabel(form.difficulty)}</div>
-                  <div className="muted mt-2 text-sm">
-                    {`${form.attempts.length} sitting${form.attempts.length === 1 ? "" : "s"}${form.latestOverall != null ? " · scores below" : " · not finished yet"}`}
-                  </div>
+            <div key={form.id} className="paper-row panel">
+              <div className="paper-row-main">
+                <div className="font-medium">{form.topics.join(" · ") || "General academic"}</div>
+                <div className="muted mt-1 text-sm">
+                  {new Date(form.createdAt).toLocaleString()}
+                  {` · ${difficultyLabel(form.difficulty)}`}
+                  {form.subjectsLabel && form.subjectsLabel !== "Any subject" ? ` · ${form.subjectsLabel}` : ""}
+                  {` · ${form.attempts.length} sitting${form.attempts.length === 1 ? "" : "s"}`}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {incomplete && (
-                    <PrimaryButton onClick={() => router.push(`/exam/${incomplete.id}`)}>Resume</PrimaryButton>
-                  )}
-                  {form.attempts.find((a) => a.status === "completed") && (
-                    <GhostButton
-                      onClick={() =>
-                        router.push(`/review/${form.attempts.find((a) => a.status === "completed")!.id}`)
-                      }
-                    >
-                      Review latest
-                    </GhostButton>
-                  )}
-                  <GhostButton onClick={() => void startSession({ formId: form.id, mode: "retake", scope: ["full"] })}>
-                    Retake full
-                  </GhostButton>
-                  <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: form.attempts[0]?.id })}>
-                    Redo parts
-                  </GhostButton>
+                <div className="mt-2">
+                  <SectionPills included={sectionsFromScope(form.scope)} />
                 </div>
               </div>
-              <div className="mt-2 space-y-4">
+              <div className="paper-row-actions">
+                {incomplete ? (
+                  <PrimaryButton onClick={() => router.push(`/exam/${incomplete.id}`)}>Resume</PrimaryButton>
+                ) : latestDone ? (
+                  <PrimaryButton onClick={() => router.push(`/review/${latestDone.id}`)}>Review</PrimaryButton>
+                ) : null}
+                <GhostButton onClick={() => void startSession({ formId: form.id, mode: "retake", scope: form.scope as ScopePart[] | undefined })}>
+                  Retake
+                </GhostButton>
+                <GhostButton
+                  onClick={() => {
+                    setSelected([]);
+                    setAllowReadapt(false);
+                    setRedo({ formId: form.id, sourceSessionId: form.attempts[0]?.id });
+                  }}
+                >
+                  Redo
+                </GhostButton>
+                <GhostButton disabled={removing === form.id} onClick={() => void deletePaperAndResults(form.id)}>
+                  Delete
+                </GhostButton>
+              </div>
+              <div className="paper-row-sittings">
                 {form.attempts.map((attempt) => (
-                  <div key={attempt.id}>
+                  <div key={attempt.id} className="paper-sitting">
                     {attempt.status !== "completed" || !attempt.analysis ? (
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <div>
-                          <p className="font-medium capitalize">
-                            {attempt.mode} · {attempt.scopeLabel} · {attempt.status}
-                          </p>
-                          <p className="muted">{new Date(attempt.createdAt).toLocaleString()}</p>
-                        </div>
-                        <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: attempt.id })}>
-                          Redo from this
-                        </GhostButton>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <p className="muted capitalize">
+                          {attempt.mode} · {attempt.scopeLabel} · {attempt.status} ·{" "}
+                          {new Date(attempt.createdAt).toLocaleString()}
+                        </p>
+                        <button
+                          type="button"
+                          className="paper-link"
+                          disabled={removing === attempt.id}
+                          onClick={() => void removeResult(attempt.id)}
+                        >
+                          Remove
+                        </button>
                       </div>
                     ) : (
                       <>
                         <AttemptScoreSummary attempt={attempt} />
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <PrimaryButton onClick={() => router.push(`/review/${attempt.id}`)}>
-                            Full review
-                          </PrimaryButton>
+                        <div className="paper-sitting-links">
+                          <button type="button" className="paper-link" onClick={() => router.push(`/review/${attempt.id}`)}>
+                            Review
+                          </button>
                           {form.attempts.filter((row) => row.status === "completed").length > 1 && (
-                            <GhostButton
+                            <button
+                              type="button"
+                              className="paper-link"
                               onClick={() => {
                                 const other = form.attempts.find((row) => row.status === "completed" && row.id !== attempt.id);
                                 if (other) router.push(`/compare?a=${attempt.id}&b=${other.id}`);
                               }}
                             >
                               Compare
-                            </GhostButton>
+                            </button>
                           )}
-                          <GhostButton onClick={() => setRedo({ formId: form.id, sourceSessionId: attempt.id })}>
-                            Redo from this
-                          </GhostButton>
+                          <button
+                            type="button"
+                            className="paper-link"
+                            disabled={removing === attempt.id}
+                            onClick={() => void removeResult(attempt.id)}
+                          >
+                            Remove
+                          </button>
                         </div>
                       </>
                     )}
@@ -551,12 +666,11 @@ export function HomeLibrary() {
 
       {startOpen && (
         <div className="app-modal">
-          <div className="panel w-full max-w-xl p-6">
+          <div className="panel w-full max-w-2xl p-6">
             <h2 className="mb-2 text-xl font-semibold">New unused tests</h2>
             <p className="muted mb-4 text-sm leading-6">
-              Papers are unused for you. You can queue several; they build one after another. Each usually takes 2–6
-              minutes and stops after {Math.round(jobLimitMs / 60000)} minutes. You currently have {heldCount} of{" "}
-              {maxHeldPapers} unused or queued papers.
+              Choose the test categories first. A full paper keeps all four on. Papers queue one after another and
+              usually take 2–6 minutes. You currently have {heldCount} of {maxHeldPapers} unused or queued papers.
             </p>
             {!llmReady && (
               <p className="app-notice-warn mb-4 rounded-xl p-3 text-sm">
@@ -571,6 +685,33 @@ export function HomeLibrary() {
               </div>
             ) : (
               <div className="space-y-4">
+                <div>
+                  <p className="mb-2 text-sm font-semibold">Test categories</p>
+                  <div className="prep-section-grid">
+                    {SECTION_ORDER.map((section) => {
+                      const on = prepSections.includes(section);
+                      const meta = SECTION_UI[section];
+                      return (
+                        <button
+                          key={section}
+                          type="button"
+                          onClick={() =>
+                            setPrepSections((prev) => {
+                              const next = on ? prev.filter((item) => item !== section) : [...prev, section];
+                              return next.length ? next : prev;
+                            })
+                          }
+                          className={`prep-section prep-section-${section}${on ? " is-on" : ""}`}
+                        >
+                          <span className="cat-letter">{meta.letter}</span>
+                          <span className="mt-2 block text-sm font-bold">{meta.name}</span>
+                          <span className="muted mt-1 block text-xs leading-5">{meta.tasks}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="muted mt-2 text-xs">{describeScope(prepScope)}. Only those sections are written and scored.</p>
+                </div>
                 <div className="space-y-2">
                   {DIFFICULTY_OPTIONS.map((option) => (
                     <label
@@ -590,6 +731,31 @@ export function HomeLibrary() {
                       <p className="muted mt-1">{option.summary}</p>
                     </label>
                   ))}
+                </div>
+                <div>
+                  <p className="mb-2 text-sm font-semibold">Subjects to include</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SUBJECT_OPTIONS.map((subject) => {
+                      const on = prepSubjects.includes(subject);
+                      return (
+                        <button
+                          key={subject}
+                          type="button"
+                          onClick={() =>
+                            setPrepSubjects((prev) =>
+                              on ? prev.filter((item) => item !== subject) : [...prev, subject],
+                            )
+                          }
+                          className={`rounded-xl border px-3 py-1.5 text-xs font-semibold ${
+                            on ? "border-[#0f766e] bg-[#ecfdf7]" : "border-[#d4ddd8]"
+                          }`}
+                        >
+                          {subject}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="muted mt-2 text-xs">{describeSubjects(prepSubjects)}. Leave all off to allow any topic.</p>
                 </div>
                 <div>
                   <p className="mb-2 text-sm font-semibold">How many to prepare for later</p>
@@ -647,41 +813,53 @@ export function HomeLibrary() {
           <div className="panel max-h-[90vh] w-full max-w-xl overflow-auto p-6">
             <h2 className="mb-3 text-xl font-semibold">Redo selected parts</h2>
             <p className="muted mb-4 text-sm">
-              Official clocks still apply to the parts you choose. Other section scores stay on the source attempt and can be used for a projected overall.
+              Only parts generated on this paper can be redone
+              {redoForm?.scopeLabel ? ` (${redoForm.scopeLabel})` : ""}. Official clocks still apply. Other
+              section scores stay on the source attempt.
             </p>
-            <label className="mb-4 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={allowReadapt}
-                onChange={(e) => setAllowReadapt(e.target.checked)}
-              />
-              Allow re-adaptive routing for Reading/Listening
-            </label>
+            {redoCanReadapt && (
+              <label className="mb-4 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={allowReadapt}
+                  onChange={(e) => setAllowReadapt(e.target.checked)}
+                />
+                Allow re-adaptive routing for Reading/Listening
+              </label>
+            )}
             <div className="space-y-3">
-              {["Reading", "Listening", "Writing", "Speaking"].map((group) => (
-                <div key={group}>
-                  <div className="mb-1 text-sm font-semibold">{group}</div>
-                  <div className="grid gap-1">
-                    {allScopeOptions()
-                      .filter((o) => o.group === group)
-                      .map((o) => (
-                        <label key={o.id} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(o.id)}
-                            onChange={(e) => {
-                              setSelected((prev) =>
-                                e.target.checked ? [...prev, o.id] : prev.filter((x) => x !== o.id),
-                              );
-                            }}
-                          />
-                          {o.label}
-                        </label>
-                      ))}
+              {redoSections.map((section) => {
+                const group = SECTION_UI[section].name;
+                return (
+                  <div key={group}>
+                    <div className={`mb-1 text-sm font-semibold section-pill section-pill-${section}`}>
+                      {SECTION_UI[section].letter} · {group}
+                    </div>
+                    <div className="grid gap-1">
+                      {redoOptions
+                        .filter((option) => option.group === group)
+                        .map((option) => (
+                          <label key={option.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selected.includes(option.id)}
+                              onChange={(e) => {
+                                setSelected((prev) =>
+                                  e.target.checked ? [...prev, option.id] : prev.filter((item) => item !== option.id),
+                                );
+                              }}
+                            />
+                            {option.label}
+                          </label>
+                        ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+            {redoSections.length === 0 && (
+              <p className="text-sm text-red-700">This paper has no parts that can be redone.</p>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <GhostButton onClick={() => setRedo(null)}>Cancel</GhostButton>
               <PrimaryButton
@@ -692,14 +870,14 @@ export function HomeLibrary() {
                     mode: "redo",
                     scope: selected,
                     sourceSessionId: redo.sourceSessionId,
-                    allowReadapt,
+                    allowReadapt: redoCanReadapt && allowReadapt,
                   })
                 }
               >
                 Start redo
               </PrimaryButton>
             </div>
-            <p className="muted mt-3 text-xs">{describeScope(selected || ["full"])}</p>
+            <p className="muted mt-3 text-xs">{describeScope(selected.length ? selected : redoScope)}</p>
           </div>
         </div>
       )}

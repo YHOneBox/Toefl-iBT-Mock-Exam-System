@@ -1,6 +1,6 @@
 import { throwIfAborted } from "../abort";
 import { fillAudio } from "../tts";
-import type { TestFormPayload } from "../types";
+import type { AudioRef, TestFormPayload } from "../types";
 import { contentKey } from "./content-key";
 import { uniquenessIssues } from "./uniqueness";
 
@@ -26,6 +26,40 @@ export async function attachFormAudio(
     }
     usedScripts.add(key);
   };
+
+  const fillIntro = (audio: AudioRef, label: string, assign: (nextAudio: AudioRef) => void) => {
+    claimScript(audio.script, label);
+    tasks.push(() =>
+      fillAudio(formId, audio, next(), "narrator").then((clip) => {
+        assign(clip);
+      }),
+    );
+  };
+
+  if (form.speaking.listenRepeat.scenario) {
+    const intro = form.speaking.listenRepeat.scenarioAudio || {
+      script: form.speaking.listenRepeat.scenario,
+      accent: "us" as const,
+      gender: "female" as const,
+      fallbackTts: true,
+      rate: 0.95,
+    };
+    fillIntro(intro, "listen-repeat intro", (clip) => {
+      form.speaking.listenRepeat.scenarioAudio = clip;
+    });
+  }
+  if (form.speaking.interview.scenario) {
+    const intro = form.speaking.interview.scenarioAudio || {
+      script: form.speaking.interview.scenario,
+      accent: "us" as const,
+      gender: "female" as const,
+      fallbackTts: true,
+      rate: 0.95,
+    };
+    fillIntro(intro, "interview intro", (clip) => {
+      form.speaking.interview.scenarioAudio = clip;
+    });
+  }
 
   const listenBundles = [form.listening.module1, form.listening.module2Lower, form.listening.module2Upper];
   for (const bundle of listenBundles) {

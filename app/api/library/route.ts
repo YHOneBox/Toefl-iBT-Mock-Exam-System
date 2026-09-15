@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { failAuth, requireStudent } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { buildAttemptAnalysis } from "@/lib/library-analysis";
-import { describeScope, parseScope } from "@/lib/scope";
+import { describeScope, describeSubjects, normalizeScope, parseScope } from "@/lib/scope";
+import { parseForm } from "@/lib/form";
 
 function parseAnswer(raw: string): unknown {
   try {
@@ -29,6 +30,9 @@ export async function GET() {
 
     const data = forms.map((form) => {
       const topics = JSON.parse(form.topicTags) as string[];
+      const payload = parseForm(form.payloadJson);
+      const formScope = normalizeScope(payload.scope);
+      const formSubjects = payload.subjects || [];
       const attempts = form.sessions
         .filter((session) => session.status !== "discarded")
         .map((session) => {
@@ -74,6 +78,10 @@ export async function GET() {
         id: form.id,
         createdAt: form.createdAt.toISOString(),
         topics,
+        scope: formScope,
+        scopeLabel: describeScope(formScope),
+        subjects: formSubjects,
+        subjectsLabel: describeSubjects(formSubjects),
         difficulty: form.difficulty || "standard",
         attemptCount: attempts.length,
         latestOverall: latest ?? null,

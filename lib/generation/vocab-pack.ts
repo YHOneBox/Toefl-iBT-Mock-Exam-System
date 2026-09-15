@@ -118,30 +118,32 @@ export function retrieveItemContext(
     | "speaking",
   difficulty: ExamDifficulty,
   avoid: string[] = [],
+  subjects: string[] = [],
 ): string {
   const blocked = new Set(avoid.map((item) => item.toLowerCase()));
-  const disciplines = ACADEMIC_DISCIPLINES.filter((row) => !blocked.has(row.name.toLowerCase()));
-  const discipline = pickOne(disciplines.length ? [...disciplines] : [...ACADEMIC_DISCIPLINES]);
+  const named = subjects.filter((item) => item !== "Campus life");
+  const campusPreferred = subjects.includes("Campus life");
+  const wanted = ACADEMIC_DISCIPLINES.filter((row) => named.includes(row.name));
+  const disciplinePool = wanted.length ? wanted : ACADEMIC_DISCIPLINES.filter((row) => !blocked.has(row.name.toLowerCase()));
+  const discipline = pickOne(disciplinePool.length ? [...disciplinePool] : [...ACADEMIC_DISCIPLINES]);
   const angle = pickOne([...discipline.angles]);
-  const campus = pickOne(
-    CAMPUS_CONTEXTS.filter((row) => !blocked.has(row.toLowerCase())).length
-      ? CAMPUS_CONTEXTS.filter((row) => !blocked.has(row.toLowerCase()))
-      : [...CAMPUS_CONTEXTS],
-  );
+  const campusPool = CAMPUS_CONTEXTS.filter((row) => !blocked.has(row.toLowerCase()));
+  const campus = pickOne(campusPool.length ? campusPool : [...CAMPUS_CONTEXTS]);
   const format = pickOne([...DAILY_FORMATS]);
   const words = pick([...ACADEMIC_WORD_EXAMPLES], 6).join(", ");
-  const cohesive = pick(
-    Object.values(COHESIVE_DEVICES).flat(),
-    4,
-  ).join(", ");
+  const cohesive = pick(Object.values(COHESIVE_DEVICES).flat(), 4).join(", ");
   const level = cefrHint(difficulty);
   const avoidLine = avoid.length ? `Do not reuse these topics or titles: ${avoid.slice(0, 16).join("; ")}.` : "";
+  const subjectLine = subjects.length ? `Prefer these subjects or campus contexts: ${subjects.join("; ")}.` : "";
 
   const academicFocus = `Discipline: ${discipline.name}. Angle: ${angle}. Weave in at least two of these cohesive devices naturally: ${cohesive}. Academic words that may appear if they fit: ${words}.`;
   const campusFocus = `Campus/daily context: ${campus}. Format hint: ${format}.`;
 
   if (kind === "ctw" || kind === "academic" || kind === "talk") {
-    return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${academicFocus} ${avoidLine}`;
+    if (campusPreferred && !named.length) {
+      return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${campusFocus} Keep the passage on campus life, facilities, or student services rather than a specialist academic field. ${subjectLine} ${avoidLine}`;
+    }
+    return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${academicFocus} ${subjectLine} ${avoidLine}`;
   }
   if (
     kind === "daily" ||
@@ -151,10 +153,10 @@ export function retrieveItemContext(
     kind === "sentence" ||
     kind === "email"
   ) {
-    return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${campusFocus} ${avoidLine}`;
+    return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${campusFocus} ${subjectLine} ${avoidLine}`;
   }
   if (kind === "discussion") {
-    return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${academicFocus} Keep the prompt introductory. ${avoidLine}`;
+    return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${academicFocus} Keep the prompt introductory. ${subjectLine} ${avoidLine}`;
   }
-  return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${campusFocus} ${academicFocus} ${avoidLine}`;
+  return `${ITEM_WRITING_RULES} Difficulty: ${level}. ${campusFocus} ${academicFocus} ${subjectLine} ${avoidLine}`;
 }

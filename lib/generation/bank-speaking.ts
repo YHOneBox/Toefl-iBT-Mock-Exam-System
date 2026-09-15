@@ -66,7 +66,10 @@ export function makeSpeakingBundle(
   seen: Set<string> = new Set(),
   strict = false,
   usedStems: Set<string> = new Set(),
+  include: { repeats?: boolean; interviews?: boolean } = {},
 ): SpeakingBundle {
+  const needRepeats = include.repeats !== false;
+  const needInterviews = include.interviews !== false;
   const repeats = [...(extras?.repeats || [])].reverse().concat(REPEAT);
   const interviews = [...(extras?.interviews || [])].reverse().concat(INTERVIEWS);
   const unusedRepeat = repeats.find(
@@ -81,42 +84,50 @@ export function makeSpeakingBundle(
       !row.questions.some((prompt) => usedStems.has(contentKey(prompt)) || isSeenText(seen, prompt)) &&
       new Set(row.questions.map((prompt) => prompt.trim().toLowerCase())).size === row.questions.length,
   );
-  if (strict && !unusedRepeat) throw new NeedMoreItems("repeats");
-  if (strict && !unusedInterview) throw new NeedMoreItems("interviews");
+  if (strict && needRepeats && !unusedRepeat) throw new NeedMoreItems("repeats");
+  if (strict && needInterviews && !unusedInterview) throw new NeedMoreItems("interviews");
   const repeat = unusedRepeat || pickOne(REPEAT);
   const interview = unusedInterview || pickOne(INTERVIEWS);
-  for (const prompt of interview.questions) usedStems.add(contentKey(prompt));
+  if (needInterviews) {
+    for (const prompt of interview.questions) usedStems.add(contentKey(prompt));
+  }
   return {
-    listenRepeat: {
-      scenario: repeat.scenario,
-      setting: repeat.setting,
-      items: repeat.sentences.map((sentence, i) => ({
-        id: makeId("rep"),
-        taskType: "listen_repeat" as const,
-        sentence,
-        seconds: REPEAT_SECONDS[i],
-        audio: audio(
-          sentence,
-          ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].accent,
-          ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].gender,
-        ),
-      })),
-    },
-    interview: {
-      scenario: interview.scenario,
-      interviewer: interview.interviewer,
-      items: interview.questions.map((prompt, i) => ({
-        id: makeId("int"),
-        taskType: "take_interview" as const,
-        prompt,
-        seconds: 45 as const,
-        focus: (["fact", "reaction", "opinion", "policy"] as const)[i],
-        audio: audio(
-          prompt,
-          ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].accent,
-          ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].gender,
-        ),
-      })),
-    },
+    listenRepeat: needRepeats
+      ? {
+          scenario: repeat.scenario,
+          setting: repeat.setting,
+          scenarioAudio: audio(repeat.scenario, "us", "female", 0.95),
+          items: repeat.sentences.map((sentence, i) => ({
+            id: makeId("rep"),
+            taskType: "listen_repeat" as const,
+            sentence,
+            seconds: REPEAT_SECONDS[i],
+            audio: audio(
+              sentence,
+              ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].accent,
+              ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].gender,
+            ),
+          })),
+        }
+      : { scenario: "", setting: "", items: [] },
+    interview: needInterviews
+      ? {
+          scenario: interview.scenario,
+          interviewer: interview.interviewer,
+          scenarioAudio: audio(interview.scenario, "us", "female", 0.95),
+          items: interview.questions.map((prompt, i) => ({
+            id: makeId("int"),
+            taskType: "take_interview" as const,
+            prompt,
+            seconds: 45 as const,
+            focus: (["fact", "reaction", "opinion", "policy"] as const)[i],
+            audio: audio(
+              prompt,
+              ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].accent,
+              ACCENT_GENDER_PAIRS[i % ACCENT_GENDER_PAIRS.length].gender,
+            ),
+          })),
+        }
+      : { scenario: "", interviewer: "", items: [] },
   };
 }

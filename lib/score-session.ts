@@ -26,7 +26,15 @@ import {
 } from "./writing-feedback";
 import { enabledSections, parseScope, sectionEnabled, taskEnabled } from "./scope";
 import { transcribeFile } from "./stt";
+import { playableRecordingFile } from "./recordings";
 import type { RawScores, RouteLevel } from "./types";
+
+async function transcribeRecording(rel?: string | null) {
+  if (!rel) return "";
+  const abs = path.join(process.cwd(), rel);
+  const playable = await playableRecordingFile(abs);
+  return transcribeFile(playable?.abs || abs);
+}
 
 function parseValue(raw: string): unknown {
   try {
@@ -115,12 +123,34 @@ async function llmScore(kind: string, prompt: string, response: string, userId?:
   }
 }
 
+const scoringJobs = new Set<string>();
+
+export function enqueueScoreSession(sessionId: string) {
+  if (scoringJobs.has(sessionId)) return;
+  scoringJobs.add(sessionId);
+  void scoreSession(sessionId)
+    .catch((err) => {
+      console.error("scoreSession failed", sessionId, err);
+    })
+    .finally(() => {
+      scoringJobs.delete(sessionId);
+    });
+}
+
 export async function scoreSession(sessionId: string) {
   const session = await prisma.examSession.findUnique({
     where: { id: sessionId },
     include: { form: true, responses: true },
   });
   if (!session) throw new Error("Session not found");
+  if (
+    session.currentPointer !== "scoring" &&
+    session.currentPointer !== "completed" &&
+    session.status !== "scoring" &&
+    session.status !== "completed"
+  ) {
+    throw new Error("Session is not ready to score");
+  }
   const form = parseForm(session.form.payloadJson);
   const scope = parseScope(session.scopeJson);
   const answers = answerMap(session.responses);
@@ -224,7 +254,7 @@ export async function scoreSession(sessionId: string) {
         const rec = session.responses.find((r) => r.itemId === item.id);
         let transcript = rec?.transcript || "";
         if (!transcript && rec?.recordingPath) {
-          transcript = await transcribeFile(path.join(process.cwd(), rec.recordingPath));
+          transcript = await transcribeRecording(rec.recordingPath);
           if (transcript) {
             await prisma.response.update({ where: { id: rec.id }, data: { transcript } });
           }
@@ -245,7 +275,7 @@ export async function scoreSession(sessionId: string) {
         const rec = session.responses.find((r) => r.itemId === item.id);
         let transcript = rec?.transcript || "";
         if (!transcript && rec?.recordingPath) {
-          transcript = await transcribeFile(path.join(process.cwd(), rec.recordingPath));
+          transcript = await transcribeRecording(rec.recordingPath);
           if (transcript) {
             await prisma.response.update({ where: { id: rec.id }, data: { transcript } });
           }

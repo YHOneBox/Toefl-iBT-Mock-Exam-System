@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { failAuth, requireSessionForUser } from "@/lib/auth";
-import { scoreSession } from "@/lib/score-session";
+import { enqueueScoreSession } from "@/lib/score-session";
 
-export const maxDuration = 120;
+export const maxDuration = 800;
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,8 +11,11 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     if (session.status === "completed" || session.currentPointer === "completed") {
       return NextResponse.json({ error: "This test is already submitted and cannot be changed" }, { status: 409 });
     }
-    const report = await scoreSession(id);
-    return NextResponse.json(report);
+    if (session.status !== "scoring" && session.currentPointer !== "scoring") {
+      return NextResponse.json({ error: "This test is not ready to score" }, { status: 409 });
+    }
+    enqueueScoreSession(id);
+    return NextResponse.json({ ok: true, status: "scoring" });
   } catch (err) {
     return (
       failAuth(err) ??

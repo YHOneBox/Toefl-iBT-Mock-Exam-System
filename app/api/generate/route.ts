@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { failAuth, requireStudent } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseDifficulty } from "@/lib/generation/difficulty";
+import type { ScopePart } from "@/lib/types";
 import {
   enqueuePrepJob,
   inflightJobCount,
@@ -56,9 +57,13 @@ export async function POST(req: Request) {
       difficulty?: string;
       intent?: string;
       count?: number;
+      scope?: ScopePart[];
+      subjects?: string[];
     };
     const intent = body.intent === "prepare" ? "prepare" : "start";
     const difficulty = parseDifficulty(body.difficulty);
+    const scope = body.scope;
+    const subjects = body.subjects;
     const unusedCount = await unusedFormCount(user.id);
     const inflight = inflightJobCount(user.id);
     const room = MAX_HELD_PAPERS - unusedCount - inflight;
@@ -79,7 +84,7 @@ export async function POST(req: Request) {
       );
     }
     const make = Math.min(wanted, room);
-    const jobs = Array.from({ length: make }, () => enqueuePrepJob(user.id, difficulty, intent));
+    const jobs = Array.from({ length: make }, () => enqueuePrepJob(user.id, difficulty, intent, { scope, subjects }));
     after(() => {
       for (const job of jobs) void runPrepJob(job.id);
     });

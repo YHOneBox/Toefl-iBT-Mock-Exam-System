@@ -49,6 +49,23 @@ textarea {
   z-index: 40;
 }
 
+.answer-key-badge {
+  position: fixed;
+  right: 12px;
+  bottom: 64px;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: 999px;
+  background: #9b2c2c;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.75rem;
+  box-shadow: 0 8px 20px -10px rgba(127, 29, 29, 0.9);
+}
+
 .exam-header {
   flex-wrap: wrap;
   min-height: 56px;
@@ -374,9 +391,385 @@ textarea {
 }
 
 .app-main {
-  width: min(72rem, calc(100% - 2rem));
+  width: min(76rem, calc(100% - 2rem));
   margin: 0 auto;
   padding: 1.75rem 0 3rem;
+}
+
+.app-shell .library-hero {
+  display: block;
+  margin-bottom: 1.25rem;
+}
+
+.app-shell .library-cats {
+  margin-bottom: 1.5rem;
+}
+
+.app-shell .library-cats-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.7rem;
+}
+
+.app-shell .library-cats-head h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.app-shell .library-overall {
+  font-size: 0.85rem;
+  color: #5a6b66;
+}
+
+.app-shell .library-overall strong {
+  color: #134e4a;
+  font-size: 1.05rem;
+}
+
+.app-shell .library-clear,
+.app-shell .paper-link {
+  border: 0;
+  background: none;
+  color: #0f766e;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.app-shell .library-clear {
+  margin-top: 0.65rem;
+}
+
+.app-shell .library-results-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.85rem;
+}
+
+.app-shell .library-search {
+  width: min(18rem, 100%);
+  margin: 0;
+}
+
+.app-shell .paper-row {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+}
+
+@media (min-width: 800px) {
+  .app-shell .paper-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+}
+
+.app-shell .paper-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.app-shell .paper-row-sittings {
+  grid-column: 1 / -1;
+}
+
+.app-shell .paper-sitting + .paper-sitting {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #e2ece8;
+}
+
+.app-shell .paper-sitting-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-top: 0.45rem;
+}
+
+.app-shell .cat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+@media (min-width: 900px) {
+  .app-shell .cat-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.app-shell .cat-card {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+  border: 1px solid #c9d8d2;
+  border-radius: 12px;
+  border-top-width: 5px;
+  background: #fff;
+  padding: 0.55rem 0.65rem 0.65rem;
+  box-shadow: none;
+}
+
+.app-shell .cat-card.is-active {
+  box-shadow: 0 0 0 2px currentColor;
+}
+
+.app-shell .cat-card.is-dim {
+  opacity: 0.45;
+}
+
+.app-shell .cat-card-hit {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0.2rem 0.1rem;
+  text-align: left;
+}
+
+.app-shell .cat-card-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.app-shell .cat-card-copy strong {
+  font-size: 0.92rem;
+}
+
+.app-shell .cat-card .score-figure {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.app-shell .cat-practice {
+  margin-top: 0.35rem;
+  border: 0;
+  background: none;
+  color: #0f766e;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.app-shell .cat-practice:hover {
+  text-decoration: underline;
+}
+
+.app-shell .cat-card-reading {
+  border-top-color: #0f766e;
+}
+
+.app-shell .cat-card-listening {
+  border-top-color: #4338ca;
+}
+
+.app-shell .cat-card-writing {
+  border-top-color: #c2410c;
+}
+
+.app-shell .cat-card-speaking {
+  border-top-color: #be123c;
+}
+
+.app-shell .cat-letter {
+  display: inline-flex;
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.55rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.app-shell .cat-card-reading .cat-letter {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.app-shell .cat-card-listening .cat-letter {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.app-shell .cat-card-writing .cat-letter {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.app-shell .cat-card-speaking .cat-letter {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.app-shell .cat-card-reading .score-figure {
+  color: #0f766e;
+}
+
+.app-shell .cat-card-listening .score-figure {
+  color: #4338ca;
+}
+
+.app-shell .cat-card-writing .score-figure {
+  color: #c2410c;
+}
+
+.app-shell .cat-card-speaking .score-figure {
+  color: #be123c;
+}
+
+.app-shell .section-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.app-shell .section-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem 0.18rem 0.22rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.app-shell .section-pill-letter {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.55);
+  font-size: 0.68rem;
+}
+
+.app-shell .section-pill-reading {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.app-shell .section-pill-listening {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.app-shell .section-pill-writing {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.app-shell .section-pill-speaking {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.app-shell .section-pill.is-off {
+  opacity: 0.38;
+  filter: grayscale(0.35);
+}
+
+.app-shell .paper-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.app-shell .prep-section-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.65rem;
+}
+
+@media (min-width: 560px) {
+  .app-shell .prep-section-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.app-shell .prep-section {
+  text-align: left;
+  border: 2px solid #d4ddd8;
+  border-radius: 14px;
+  background: #fff;
+  padding: 0.85rem 0.9rem;
+}
+
+.app-shell .prep-section.is-on {
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.app-shell .prep-section-reading .cat-letter {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.app-shell .prep-section-listening .cat-letter {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.app-shell .prep-section-writing .cat-letter {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.app-shell .prep-section-speaking .cat-letter {
+  background: #ffe4e6;
+  color: #9f1239;
+}
+
+.app-shell .prep-section-reading.is-on {
+  border-color: #0f766e;
+  background: #f0fdfa;
+  color: #115e59;
+}
+
+.app-shell .prep-section-listening.is-on {
+  border-color: #4338ca;
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.app-shell .prep-section-writing.is-on {
+  border-color: #c2410c;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.app-shell .prep-section-speaking.is-on {
+  border-color: #be123c;
+  background: #fff1f2;
+  color: #9f1239;
+}
+
+.app-shell .library-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
 }
 
 .app-shell .panel {
@@ -500,6 +893,16 @@ textarea {
 
 .app-shell .trend-bar {
   background: #0f766e;
+}
+
+.app-shell .section-tab-all {
+  background: #fff;
+  color: #14221f;
+}
+
+.app-shell .section-tab-all.is-active {
+  background: #14221f;
+  color: #fff;
 }
 
 .app-shell .section-tab {
@@ -758,6 +1161,43 @@ textarea {
   overflow: auto;
   padding: 5.5rem 1rem 2rem;
   background: rgba(15, 23, 20, 0.45);
+}
+
+.scoring-wait {
+  min-height: calc(100vh - 4rem);
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+  background: #f4f7f6;
+}
+
+.scoring-wait-card {
+  width: min(36rem, 100%);
+  border: 1px solid #c9d8d2;
+  border-radius: 16px;
+  background: #fff;
+  padding: 2rem 1.6rem;
+  box-shadow: 0 20px 50px -32px rgba(11, 61, 56, 0.55);
+}
+
+.scoring-wait-kicker {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.scoring-wait-card h1 {
+  margin: 0.35rem 0 0.85rem;
+  font-size: 1.55rem;
+  line-height: 1.25;
+}
+
+.scoring-wait-stage {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: #134e4a;
 }
 
 nextjs-portal,

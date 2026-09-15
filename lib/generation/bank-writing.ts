@@ -312,9 +312,13 @@ export function makeWritingBundle(
   seen: Set<string> = new Set(),
   strict = false,
   _usedStems: Set<string> = new Set(),
+  include: { sentences?: boolean; email?: boolean; discussion?: boolean } = {},
 ) {
   const extra = writingExtras(extras);
   const allow = new Set(cefrAllowed(band));
+  const needSentences = include.sentences !== false;
+  const needEmail = include.email !== false;
+  const needDiscussion = include.discussion !== false;
   const unseen = (row: SentenceSeed) =>
     !isSeenKey(seen, seedKey("sentences", row)) && !isSeenKey(seen, contentKey(row.answer.join(" ")));
   const merged = [...extra.sentences].reverse().concat(SENTENCES);
@@ -338,21 +342,35 @@ export function makeWritingBundle(
       !isSeenText(seen, row.prompt) &&
       !isSeenKey(seen, seedKey("discussions", row)),
   );
-  if (strict && sentencePool.length < 10) throw new NeedMoreItems("sentences");
-  if (strict && emailPool.length === 0) throw new NeedMoreItems("email");
-  if (strict && discussionPool.length === 0) throw new NeedMoreItems("discussion");
+  if (strict && needSentences && sentencePool.length < 10) throw new NeedMoreItems("sentences");
+  if (strict && needEmail && emailPool.length === 0) throw new NeedMoreItems("email");
+  if (strict && needDiscussion && discussionPool.length === 0) throw new NeedMoreItems("discussion");
   return {
-    sentences: (sentencePool.length >= 10 ? sentencePool.slice(0, 10) : pick(merged, 10)).map((row) => ({
-      ...row,
-      id: makeId("sent"),
-      taskType: "build_sentence" as const,
-      tokens: shuffle([...row.tokens]),
-    })),
-    email: { ...(pickOne(emailPool.length ? emailPool : EMAILS)), id: makeId("email"), taskType: "write_email" as const },
-    discussion: {
-      ...(pickOne(discussionPool.length ? discussionPool : DISCUSSIONS)),
-      id: makeId("disc"),
-      taskType: "write_discussion" as const,
-    },
+    sentences: needSentences
+      ? (sentencePool.length >= 10 ? sentencePool.slice(0, 10) : pick(merged, 10)).map((row) => ({
+          ...row,
+          id: makeId("sent"),
+          taskType: "build_sentence" as const,
+          tokens: shuffle([...row.tokens]),
+        }))
+      : [],
+    email: needEmail
+      ? { ...(pickOne(emailPool.length ? emailPool : EMAILS)), id: makeId("email"), taskType: "write_email" as const }
+      : { id: makeId("email"), taskType: "write_email" as const, cefr: "B1" as const, scenario: "", audience: "", goal: "" },
+    discussion: needDiscussion
+      ? {
+          ...(pickOne(discussionPool.length ? discussionPool : DISCUSSIONS)),
+          id: makeId("disc"),
+          taskType: "write_discussion" as const,
+        }
+      : {
+          id: makeId("disc"),
+          taskType: "write_discussion" as const,
+          cefr: "B1" as const,
+          course: "",
+          professor: { name: "", text: "" },
+          students: [],
+          prompt: "",
+        },
   };
 }

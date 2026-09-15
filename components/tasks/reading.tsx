@@ -2,6 +2,7 @@
 
 import { defaultInsertPositions, splitSentences } from "@/lib/passage";
 import type { AcademicSet, CompleteTheWordsSet, DailyLifeSet, McqQuestion } from "@/lib/types";
+import { useShowAnswer } from "../exam/answer-reveal";
 
 function isInsertQuestion(q: McqQuestion) {
   return q.passageAction === "insert" || Boolean(q.insertSentence) || /insert/i.test(q.skill);
@@ -22,6 +23,7 @@ export function CompleteTheWordsTask({
   onChange: (itemId: string, value: string) => void;
   review?: boolean;
 }) {
+  const showKey = useShowAnswer(review);
   return (
     <div className="panel p-5">
       <h2 className="mb-3 text-lg font-semibold">Complete the Words</h2>
@@ -35,7 +37,7 @@ export function CompleteTheWordsTask({
             return <span key={i}>{token.text}{token.punct || ""} </span>;
           }
           const typed = values[token.itemId] || "";
-          const ok = review && typed.toLowerCase() === (token.answer || "").toLowerCase();
+          const ok = showKey && typed.toLowerCase() === (token.answer || "").toLowerCase();
           const letters = Math.max(1, token.answer?.length || 4);
           return (
             <span key={token.itemId} className="ctw-word">
@@ -50,11 +52,11 @@ export function CompleteTheWordsTask({
                 autoCapitalize="off"
                 onChange={(e) => onChange(token.itemId!, e.target.value)}
                 style={{ ["--letters" as string]: String(letters) }}
-                className={`outline-none ${review ? (ok ? "ctw-ok" : "ctw-bad") : ""}`}
+                className={`outline-none ${showKey ? (ok ? "ctw-ok" : "ctw-bad") : ""}`}
                 aria-label="missing letters"
               />
               <span>{token.punct || ""} </span>
-              {review && !ok && (
+              {showKey && !ok && (
                 <span className="ml-1 rounded border-2 border-green-700 bg-green-100 px-1 text-xs font-semibold text-green-900">
                   {token.answer}
                 </span>
@@ -80,6 +82,7 @@ export function McqList({
   review?: boolean;
   startAt?: number;
 }) {
+  const showKey = useShowAnswer(review);
   return (
     <div className="space-y-5">
       {questions.map((q, idx) => (
@@ -90,8 +93,8 @@ export function McqList({
           <div className="space-y-2">
             {q.options.map((opt, i) => {
               const selected = values[q.id] === i;
-              const correct = Boolean(review && q.answerKey === i);
-              const wrong = Boolean(review && selected && q.answerKey !== i);
+              const correct = Boolean(showKey && q.answerKey === i);
+              const wrong = Boolean(showKey && selected && q.answerKey !== i);
               return (
                 <button
                   key={i}
@@ -107,7 +110,7 @@ export function McqList({
                     <span>
                       {String.fromCharCode(65 + i)}. {opt}
                     </span>
-                    {review && (
+                    {showKey && (
                       <span className="text-xs font-bold uppercase">
                         {wrong && "Your answer"}
                         {correct && (selected ? "Your answer · Correct" : "Correct answer")}
@@ -118,7 +121,7 @@ export function McqList({
               );
             })}
           </div>
-          {review && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
+          {showKey && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
         </div>
       ))}
     </div>
@@ -191,6 +194,7 @@ export function AcademicTask({
   onChange: (id: string, value: number) => void;
   review?: boolean;
 }) {
+  const showKey = useShowAnswer(review);
   const sentences = splitSentences(set.text);
   const insertQ = set.questions.find(isInsertQuestion);
   const selectQ = set.questions.find(isSelectQuestion);
@@ -211,8 +215,8 @@ export function AcademicTask({
           {sentences.map((sentence, index) => {
             const squareAt = positions.indexOf(index);
             const selectedSentence = selectQ ? values[selectQ.id] === index : false;
-            const correctSentence = Boolean(review && selectQ && selectQ.answerKey === index);
-            const wrongSentence = Boolean(review && selectQ && selectedSentence && selectQ.answerKey !== index);
+            const correctSentence = Boolean(showKey && selectQ && selectQ.answerKey === index);
+            const wrongSentence = Boolean(showKey && selectQ && selectedSentence && selectQ.answerKey !== index);
             return (
               <span key={index}>
                 {selectQ ? (
@@ -234,8 +238,8 @@ export function AcademicTask({
                   <InsertSquare
                     label={String.fromCharCode(65 + squareAt)}
                     selected={values[insertQ.id] === squareAt}
-                    correct={Boolean(review && insertQ.answerKey === squareAt)}
-                    wrong={Boolean(review && values[insertQ.id] === squareAt && insertQ.answerKey !== squareAt)}
+                    correct={Boolean(showKey && insertQ.answerKey === squareAt)}
+                    wrong={Boolean(showKey && values[insertQ.id] === squareAt && insertQ.answerKey !== squareAt)}
                     disabled={review}
                     onClick={() => onChange(insertQ.id, squareAt)}
                   />
@@ -256,7 +260,7 @@ export function AcademicTask({
                 <p className="text-sm text-[#5b6775]">
                   Click the black square in the passage where the sentence best fits.
                 </p>
-                {review && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
+                {showKey && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
               </div>
             );
           }
@@ -267,7 +271,7 @@ export function AcademicTask({
                   {idx + 1}. {q.stem}
                 </p>
                 <p className="text-sm text-[#5b6775]">Click the sentence in the passage.</p>
-                {review && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
+                {showKey && <p className="mt-2 text-sm text-[#5b6775]">{q.rationale}</p>}
               </div>
             );
           }

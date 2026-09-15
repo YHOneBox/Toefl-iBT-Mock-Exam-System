@@ -61,13 +61,25 @@ function matchesAccent(voice: SpeechSynthesisVoice, accent: Accent) {
 function matchesGender(voice: SpeechSynthesisVoice, gender: "male" | "female") {
   const name = voice.name;
   if (gender === "male") {
-    return /male|david|daniel|george|james|mark|ryan|guy|andrew|thomas|christopher|eric|roger|matthew|brian|oliver|william|richard/i.test(
+    return /male|david|daniel|george|james|mark|ryan|guy|andrew|thomas|christopher|eric|roger|matthew|brian|oliver|william|richard|fred|alex\b/i.test(
       name,
     );
   }
   return /female|zira|samantha|susan|hazel|jenny|aria|sonia|woman|catherine|natasha|michelle|linda|karen|moira|tessa|salli|ivy|joanna|kendra|kimberly|nicole/i.test(
     name,
   );
+}
+
+function preferredVoice(voices: SpeechSynthesisVoice[], gender: "male" | "female") {
+  const patterns =
+    gender === "female"
+      ? [/samantha/i, /\baria\b/i, /jenny/i, /google us english/i, /susan/i, /karen/i, /moira/i]
+      : [/daniel/i, /david/i, /alex\b/i, /google uk english male/i, /fred/i];
+  for (const pattern of patterns) {
+    const hit = voices.find((voice) => pattern.test(voice.name) && !/compact|novelty|whisper/i.test(voice.name));
+    if (hit) return hit;
+  }
+  return null;
 }
 
 export function VoiceProvider({ children }: { children: ReactNode }) {
@@ -108,10 +120,19 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         const chosen = prefs[gender][accent];
         const exact = chosen ? voices.find((v) => v.voiceURI === chosen) : null;
         if (exact) return exact;
-        const accented = voices.filter((v) => matchesAccent(v, accent));
+        const accented = voices.filter((v) => matchesAccent(v, accent) && !/compact|novelty|whisper/i.test(v.name));
         const genderedAccent = accented.filter((v) => matchesGender(v, gender));
         const gendered = voices.filter((v) => matchesGender(v, gender));
-        return genderedAccent[0] || accented[0] || gendered[0] || voices[0] || null;
+        return (
+          preferredVoice(genderedAccent, gender) ||
+          genderedAccent[0] ||
+          preferredVoice(accented, gender) ||
+          accented[0] ||
+          preferredVoice(gendered, gender) ||
+          gendered[0] ||
+          voices[0] ||
+          null
+        );
       },
     };
   }, [prefs, voices]);

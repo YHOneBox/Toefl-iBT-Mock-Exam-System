@@ -105,6 +105,7 @@ export type AudioRef = {
   gender: "male" | "female";
   fallbackTts: boolean;
   rate?: number;
+  padded?: boolean;
 };
 
 export type ListenChooseItem = {
@@ -199,11 +200,13 @@ export type SpeakingBundle = {
   listenRepeat: {
     scenario: string;
     setting: string;
+    scenarioAudio?: AudioRef;
     items: RepeatItem[];
   };
   interview: {
     scenario: string;
     interviewer: string;
+    scenarioAudio?: AudioRef;
     items: InterviewItem[];
   };
 };
@@ -211,6 +214,8 @@ export type SpeakingBundle = {
 export type TestFormPayload = {
   topics: string[];
   difficulty?: ExamDifficulty;
+  scope?: ScopePart[];
+  subjects?: string[];
   reading: {
     module1: ReadingBundle;
     module2Lower: ReadingBundle;
@@ -250,7 +255,9 @@ export type Pointer =
   | "writing:discussion"
   | "directions:speaking"
   | "speaking:check"
+  | "speaking:repeat-intro"
   | "speaking:repeat"
+  | "speaking:interview-intro"
   | "speaking:interview"
   | "scoring"
   | "completed";

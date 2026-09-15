@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { BuildSentenceItem, DiscussionTask, EmailTask } from "@/lib/types";
+import { useShowAnswer } from "../exam/answer-reveal";
 import {
   analyzeDiscussionFormat,
   analyzeEmailFormat,
@@ -28,6 +29,7 @@ export function SentenceBuilder({
   onChange: (next: string[]) => void;
   review?: boolean;
 }) {
+  const showKey = useShowAnswer(review);
   const chips = useMemo(() => {
     const tokens = item.tokens;
     const alreadyShuffled = tokens.join("\0") !== item.answer.join("\0");
@@ -82,7 +84,7 @@ export function SentenceBuilder({
           </div>
         )}
       </div>
-      {review && (
+      {showKey && (
         <div className="mt-4 space-y-3 text-sm">
           {value.join(" ") !== item.answer.join(" ") && (
             <div className="rounded border-2 border-red-700 bg-red-50 p-3 text-red-950">
@@ -114,8 +116,9 @@ export function EmailTaskView({
   review?: boolean;
   feedback?: WritingReviewFeedback;
 }) {
+  const showKey = useShowAnswer(review);
   const words = value.trim() ? value.trim().split(/\s+/).length : 0;
-  const formatIssues = feedback?.formatIssues ?? (review ? analyzeEmailFormat(value) : []);
+  const formatIssues = feedback?.formatIssues ?? (showKey ? analyzeEmailFormat(value) : []);
   const sample = chooseEmailSample(task, feedback?.sampleAnswer);
   return (
     <div className="panel mx-auto w-full max-w-5xl p-6">
@@ -131,7 +134,7 @@ export function EmailTaskView({
         className="box-border h-64 min-h-64 w-full min-w-0 resize-none border border-[#c5d0da] p-3 text-base leading-7 outline-none"
       />
       <div className="mt-2 text-sm text-[#5b6775]">{words} words · Goal: {task.goal}</div>
-      {review && (
+      {showKey && (
         <WritingReviewPanel
           title="Email"
           score={feedback?.score}
@@ -158,8 +161,9 @@ export function DiscussionTaskView({
   review?: boolean;
   feedback?: WritingReviewFeedback;
 }) {
+  const showKey = useShowAnswer(review);
   const words = value.trim() ? value.trim().split(/\s+/).length : 0;
-  const formatIssues = feedback?.formatIssues ?? (review ? analyzeDiscussionFormat(value, task.prompt) : []);
+  const formatIssues = feedback?.formatIssues ?? (showKey ? analyzeDiscussionFormat(value, task.prompt) : []);
   const sample = feedback?.sampleAnswer || sampleDiscussionAnswer(task);
   return (
     <div className="split-panes mx-auto max-w-5xl">
@@ -185,7 +189,7 @@ export function DiscussionTaskView({
           className="box-border h-72 min-h-56 w-full min-w-0 resize-none border border-[#c5d0da] p-3 text-base leading-7 outline-none"
         />
         <div className="mt-2 text-sm text-[#5b6775]">{words} words</div>
-        {review && (
+        {showKey && (
           <WritingReviewPanel
             title="Discussion"
             score={feedback?.score}

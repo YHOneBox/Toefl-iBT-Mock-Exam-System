@@ -7,6 +7,7 @@ data/app-settings.json
 data/item-bank.json
 data/seen-items.json
 data/prep-jobs.json
+data/prep-logs/**
 data/audio/**
 data/recordings/**
 !data/audio/.gitkeep

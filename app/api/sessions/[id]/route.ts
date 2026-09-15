@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { failAuth, requireSessionForUser, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { serializeSession } from "@/lib/serialize";
-import { discardSession, SessionLockedError, updateNotepad, updateTiming } from "@/lib/sessions";
+import { discardSession, removeExamResult, SessionLockedError, updateNotepad, updateTiming } from "@/lib/sessions";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -48,7 +48,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     await requireSessionForUser(id);
     await requireUser();
-    await prisma.examSession.delete({ where: { id } });
+    await removeExamResult(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return failAuth(err) ?? NextResponse.json({ error: "Failed" }, { status: 500 });

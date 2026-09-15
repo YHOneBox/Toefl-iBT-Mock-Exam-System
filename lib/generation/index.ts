@@ -1,12 +1,14 @@
 import { throwIfAborted } from "../abort";
 import type { GeminiWaitInfo } from "../gemini-limiter";
 import { hasLlmKey } from "../llm";
-import type { Cefr, ExamDifficulty, TestFormPayload } from "../types";
+import { sectionEnabled, taskEnabled, normalizeScope, normalizeSubjects } from "../scope";
+import type { Cefr, ExamDifficulty, ScopePart, TestFormPayload } from "../types";
+import { getDifficultyProfile, parseDifficulty } from "./difficulty";
 import { makeAcademicSet, makeCtwSet, makeDailySets } from "./bank-reading";
 import { listeningBundleFor } from "./bank-listening";
 import { makeSpeakingBundle } from "./bank-speaking";
 import { makeWritingBundle } from "./bank-writing";
-import { getDifficultyProfile, parseDifficulty } from "./difficulty";
+import { emptyListeningBundle, emptyReadingBundle, emptySpeakingBundle, emptyWritingBundle } from "./empty";
 import { appendGrownBank, loadGrownBank } from "./grown-bank";
 import { contentKey, isSeenText } from "./content-key";
 import { seenForUser } from "./history";
@@ -15,6 +17,7 @@ import { enrichWithLlm } from "./llm-enrich";
 import { isNeedMoreItems, NeedMoreItems } from "./need-more";
 import { formUniquenessErrors, reusedSeenKeys } from "./uniqueness";
 import { emptyGrownBank, type GrownBank } from "./seeds";
+import { appendPrepTrace } from "./prep-trace";
 import { validateForm } from "./validate";
 
 export type GenerateProgress = (update: { progress: number; stage: string; detail?: string }) => void;
@@ -76,97 +79,151 @@ export function assembleLocalForm(
   extras: GrownBank = emptyGrownBank(),
   seen: Set<string> = new Set(),
   strict = false,
+  scope: ScopePart[] = ["full"],
 ): TestFormPayload {
+  const parts = normalizeScope(scope);
   const d = getDifficultyProfile(difficulty);
-  const ctwExclude: string[] = [];
-  const ctw1a = makeCtwSet("m1", asCtw(d.reading.m1Ctw[0]), ctwExclude, extras.ctw, seen, strict);
-  ctwExclude.push(ctw1a.fullPassage);
-  const ctw1b = makeCtwSet("m1", asCtw(d.reading.m1Ctw[1]), ctwExclude, extras.ctw, seen, strict);
-  ctwExclude.push(ctw1b.fullPassage);
-  const dailyUsed = new Set<string>();
-  const academicUsed = new Set<string>();
   const usedStems = new Set<string>();
   const listenUsed = { scripts: new Set<string>(), titles: new Set<string>(), stems: usedStems };
-  const ctw2l = makeCtwSet("m2", asCtw(d.reading.m2LowerCtw), ctwExclude, extras.ctw, seen, strict);
-  ctwExclude.push(ctw2l.fullPassage);
-  const ctw2u = makeCtwSet("m2", asCtw(d.reading.m2UpperCtw), ctwExclude, extras.ctw, seen, strict);
+
+  const reading = sectionEnabled(parts, "reading")
+    ? assembleReading(d, extras, seen, strict, parts, usedStems, listenUsed.scripts)
+    : { module1: emptyReadingBundle(), module2Lower: emptyReadingBundle(), module2Upper: emptyReadingBundle() };
+
+  const listening = sectionEnabled(parts, "listening")
+    ? {
+        module1: listeningBundleFor("m1", listenSpec("m1", parts), { band: d.listening.m1, extras, used: listenUsed, seen, strict }),
+        module2Lower: listeningBundleFor("m2", listenSpec("m2", parts), { band: d.listening.m2Lower, extras, used: listenUsed, seen, strict }),
+        module2Upper: listeningBundleFor("m2", listenSpec("m2", parts), { band: d.listening.m2Upper, extras, used: listenUsed, seen, strict }),
+      }
+    : { module1: emptyListeningBundle(), module2Lower: emptyListeningBundle(), module2Upper: emptyListeningBundle() };
+
+  const writing = sectionEnabled(parts, "writing")
+    ? scopedWriting(d.writing, extras, seen, strict, usedStems, parts)
+    : emptyWritingBundle();
+
+  const speaking = sectionEnabled(parts, "speaking")
+    ? scopedSpeaking(extras, seen, strict, usedStems, parts)
+    : emptySpeakingBundle();
+
+  const form: TestFormPayload = {
+    topics: [],
+    difficulty,
+    scope: parts,
+    reading,
+    listening,
+    writing,
+    speaking,
+  };
+  form.topics = collectTopics(form);
+  return form;
+}
+
+function listenSpec(module: "m1" | "m2", scope: ScopePart[]) {
+  const choose = taskEnabled(scope, "listening", "listen_choose_response");
+  const conversations = taskEnabled(scope, "listening", "listen_conversation");
+  const announcements = taskEnabled(scope, "listening", "listen_announcement");
+  const talks = taskEnabled(scope, "listening", "listen_academic_talk");
+  if (module === "m1") {
+    return {
+      choose: choose ? 16 : 0,
+      conversations: conversations ? 4 : 0,
+      announcements: announcements ? 2 : 0,
+      talks: talks ? 1 : 0,
+    };
+  }
+  return {
+    choose: choose ? 5 : 0,
+    conversations: conversations ? 2 : 0,
+    announcements: announcements ? 1 : 0,
+    talks: talks ? 1 : 0,
+  };
+}
+
+function assembleReading(
+  d: ReturnType<typeof getDifficultyProfile>,
+  extras: GrownBank,
+  seen: Set<string>,
+  strict: boolean,
+  scope: ScopePart[],
+  usedStems: Set<string>,
+  listenScripts: Set<string>,
+) {
+  const wantCtw = taskEnabled(scope, "reading", "complete_the_words");
+  const wantDaily = taskEnabled(scope, "reading", "read_daily_life");
+  const wantAcademic = taskEnabled(scope, "reading", "read_academic");
+  const ctwExclude: string[] = [];
+  const dailyUsed = new Set<string>();
+  const academicUsed = new Set<string>();
+  const ctw1a = wantCtw ? makeCtwSet("m1", asCtw(d.reading.m1Ctw[0]), ctwExclude, extras.ctw, seen, strict) : null;
+  if (ctw1a) ctwExclude.push(ctw1a.fullPassage);
+  const ctw1b = wantCtw ? makeCtwSet("m1", asCtw(d.reading.m1Ctw[1]), ctwExclude, extras.ctw, seen, strict) : null;
+  if (ctw1b) ctwExclude.push(ctw1b.fullPassage);
+  const ctw2l = wantCtw ? makeCtwSet("m2", asCtw(d.reading.m2LowerCtw), ctwExclude, extras.ctw, seen, strict) : null;
+  if (ctw2l) ctwExclude.push(ctw2l.fullPassage);
+  const ctw2u = wantCtw ? makeCtwSet("m2", asCtw(d.reading.m2UpperCtw), ctwExclude, extras.ctw, seen, strict) : null;
   const reading = {
     module1: {
-      completeTheWords: [ctw1a, ctw1b],
-      dailyLife: makeDailySets("m1", [2, 2, 3, 3], d.reading.daily, extras.daily, dailyUsed, seen, strict, usedStems),
-      academic: [makeAcademicSet("m1", d.reading.academic, extras.academic, academicUsed, seen, strict, usedStems)],
+      completeTheWords: [ctw1a, ctw1b].filter(Boolean) as NonNullable<typeof ctw1a>[],
+      dailyLife: wantDaily ? makeDailySets("m1", [2, 2, 3, 3], d.reading.daily, extras.daily, dailyUsed, seen, strict, usedStems) : [],
+      academic: wantAcademic ? [makeAcademicSet("m1", d.reading.academic, extras.academic, academicUsed, seen, strict, usedStems)] : [],
     },
     module2Lower: {
-      completeTheWords: [ctw2l],
-      dailyLife: makeDailySets(
-        "m2",
-        [2, 3],
-        d.reading.daily === "harder" ? "easier" : d.reading.daily,
-        extras.daily,
-        dailyUsed,
-        seen,
-        strict,
-        usedStems,
-      ),
+      completeTheWords: ctw2l ? [ctw2l] : [],
+      dailyLife: wantDaily
+        ? makeDailySets("m2", [2, 3], d.reading.daily === "harder" ? "easier" : d.reading.daily, extras.daily, dailyUsed, seen, strict, usedStems)
+        : [],
       academic: [] as ReturnType<typeof makeAcademicSet>[],
     },
     module2Upper: {
-      completeTheWords: [ctw2u],
-      dailyLife: makeDailySets(
-        "m2",
-        [2, 3],
-        d.reading.daily === "easier" ? "standard" : d.reading.daily,
-        extras.daily,
-        dailyUsed,
-        seen,
-        strict,
-        usedStems,
-      ),
+      completeTheWords: ctw2u ? [ctw2u] : [],
+      dailyLife: wantDaily
+        ? makeDailySets("m2", [2, 3], d.reading.daily === "easier" ? "standard" : d.reading.daily, extras.daily, dailyUsed, seen, strict, usedStems)
+        : [],
       academic: [] as ReturnType<typeof makeAcademicSet>[],
     },
   };
   for (const value of [...dailyUsed, ...academicUsed, ...ctwExclude]) {
     const key = contentKey(value);
-    if (key) listenUsed.scripts.add(key);
+    if (key) listenScripts.add(key);
   }
-  const form: TestFormPayload = {
-    topics: [],
-    difficulty,
-    reading,
-    listening: {
-      module1: listeningBundleFor(
-        "m1",
-        { choose: 16, conversations: 4, announcements: 2, talks: 1 },
-        { band: d.listening.m1, extras, used: listenUsed, seen, strict },
-      ),
-      module2Lower: listeningBundleFor(
-        "m2",
-        { choose: 5, conversations: 2, announcements: 1, talks: 1 },
-        {
-          band: d.listening.m2Lower,
-          extras,
-          used: listenUsed,
-          seen,
-          strict,
-        },
-      ),
-      module2Upper: listeningBundleFor(
-        "m2",
-        { choose: 5, conversations: 2, announcements: 1, talks: 1 },
-        {
-          band: d.listening.m2Upper,
-          extras,
-          used: listenUsed,
-          seen,
-          strict,
-        },
-      ),
+  return reading;
+}
+
+function scopedWriting(
+  band: ReturnType<typeof getDifficultyProfile>["writing"],
+  extras: GrownBank,
+  seen: Set<string>,
+  strict: boolean,
+  usedStems: Set<string>,
+  scope: ScopePart[],
+) {
+  const bundle = makeWritingBundle(band, extras, seen, strict, usedStems, {
+    sentences: taskEnabled(scope, "writing", "build_sentence"),
+    email: taskEnabled(scope, "writing", "write_email"),
+    discussion: taskEnabled(scope, "writing", "write_discussion"),
+  });
+  return bundle;
+}
+
+function scopedSpeaking(
+  extras: GrownBank,
+  seen: Set<string>,
+  strict: boolean,
+  usedStems: Set<string>,
+  scope: ScopePart[],
+) {
+  const bundle = makeSpeakingBundle(
+    { repeats: extras.repeats, interviews: extras.interviews },
+    seen,
+    strict,
+    usedStems,
+    {
+      repeats: taskEnabled(scope, "speaking", "listen_repeat"),
+      interviews: taskEnabled(scope, "speaking", "take_interview"),
     },
-    writing: makeWritingBundle(d.writing, extras, seen, strict, usedStems),
-    speaking: makeSpeakingBundle({ repeats: extras.repeats, interviews: extras.interviews }, seen, strict, usedStems),
-  };
-  form.topics = collectTopics(form);
-  return form;
+  );
+  return bundle;
 }
 
 function collectTopics(form: TestFormPayload): string[] {
@@ -188,17 +245,26 @@ export async function generateFormPayload(
   difficulty: ExamDifficulty = "standard",
   userId?: string,
   onProgress?: GenerateProgress,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; scope?: ScopePart[]; subjects?: string[]; jobId?: string },
 ): Promise<TestFormPayload> {
   const level = parseDifficulty(difficulty);
   const signal = opts?.signal;
+  const scope = normalizeScope(opts?.scope);
+  const subjects = normalizeSubjects(opts?.subjects);
+  const jobId = opts?.jobId;
   let lastProgress = 4;
   const report = (progress: number, stage: string, detail?: string) => {
     throwIfAborted(signal);
     lastProgress = Math.max(lastProgress, Math.min(99, progress));
     onProgress?.({ progress: lastProgress, stage, detail });
+    appendPrepTrace(jobId, { type: "progress", progress: lastProgress, stage, detail });
   };
   report(4, "Loading what you have already seen", "Checking past papers so this sitting does not repeat a question");
+  appendPrepTrace(jobId, {
+    type: "start",
+    stage: "Generation start",
+    data: { difficulty: level, scope, subjects },
+  });
   const history = userId ? await seenForUser(userId) : { keys: new Set<string>(), labels: [] as string[] };
   let extras = loadGrownBank();
   let form: TestFormPayload | null = null;
@@ -217,12 +283,13 @@ export async function generateFormPayload(
   let missingKind = "";
   let neededLlm = false;
   try {
-    form = validLocalForm(level, extras, history.keys, true);
+    form = validLocalForm(level, extras, history.keys, true, scope);
   } catch (err) {
     if (!isNeedMoreItems(err) && !(err instanceof Error && /items|module|must have/i.test(err.message))) {
       throw err;
     }
     missingKind = isNeedMoreItems(err) ? err.kind : "valid-paper";
+    appendPrepTrace(jobId, { type: "need-more", stage: "Local bank missing items", detail: missingKind });
   }
 
   for (let round = 0; !form && round < MAX_ASSEMBLE_ROUNDS; round += 1) {
@@ -239,7 +306,7 @@ export async function generateFormPayload(
       `One Gemini request at a time · round ${round + 1} of ${MAX_ASSEMBLE_ROUNDS}`,
     );
     neededLlm = true;
-    const created = await createFreshItems(level, assembleLocalForm(level, extras), avoid, {
+    const created = await createFreshItems(level, assembleLocalForm(level, extras, new Set(), false, scope), avoid, {
       scale: round === 0 ? 1 : 2,
       focus: kind,
       round,
@@ -247,12 +314,20 @@ export async function generateFormPayload(
       seen: history.keys,
       userId,
       onWait,
+      scope,
+      subjects,
       onBatch: (label) =>
         report(
           Math.min(68, 18 + round * 7),
           `Writing original ${label}`,
           "Using the Gemini fallback order saved for this account",
         ),
+    });
+    appendPrepTrace(jobId, {
+      type: "llm-batch",
+      stage: `Wrote ${created.added} unused items`,
+      detail: kind,
+      data: { added: created.added, round: round + 1, focus: created.focus },
     });
     if (created.added > 0) {
       extras = appendGrownBank(created.bank);
@@ -266,31 +341,38 @@ export async function generateFormPayload(
       }
     }
     try {
-      form = validLocalForm(level, extras, history.keys, true);
+      form = validLocalForm(level, extras, history.keys, true, scope);
       break;
     } catch (err) {
       if (!isNeedMoreItems(err) && !(err instanceof Error && /items|module|must have/i.test(err.message))) {
         throw err;
       }
       missingKind = isNeedMoreItems(err) ? err.kind : "valid-paper";
+      appendPrepTrace(jobId, { type: "assemble", stage: "Still missing unused items", detail: missingKind });
     }
   }
   if (!form) {
     throw new Error("Could not assemble an all-new paper in time. Stop and try again, or wait a few minutes.");
   }
 
-  if (!neededLlm) {
+  form.scope = scope;
+  form.subjects = subjects;
+  form.topics = collectTopics(form);
+
+  if (!neededLlm && sectionEnabled(scope, "writing")) {
     report(70, "Refreshing unused writing prompts", "One paced Gemini call so the email and discussion stay unused");
     await enrichUntilUnseen(form, level, avoid, history.keys, signal, onWait, userId);
   } else {
-    report(70, "Skipping extra writing refresh", "The model already ran for missing items; no second Gemini wave");
+    report(70, neededLlm ? "Skipping extra writing refresh" : "Skipping writing refresh", neededLlm ? "The model already ran for missing items; no second Gemini wave" : "Writing is not in this paper");
   }
 
   const finalErrors = [...validateForm(form), ...formUniquenessErrors(form, history.keys)];
   if (finalErrors.length) {
+    appendPrepTrace(jobId, { type: "validate", stage: "Uniqueness failed", error: [...new Set(finalErrors)].join("; ") });
     throw new Error(`The paper failed uniqueness or count checks: ${[...new Set(finalErrors)].join("; ")}`);
   }
   report(74, "Paper is all new", "Every question is unused and unique on this paper");
+  appendPrepTrace(jobId, { type: "ready-form", stage: "Form assembled", data: { topics: form.topics, scope, subjects } });
   return form;
 }
 
@@ -337,14 +419,15 @@ function validLocalForm(
   extras: GrownBank,
   seen: Set<string> = new Set(),
   strict = false,
+  scope: ScopePart[] = ["full"],
 ): TestFormPayload {
-  const form = assembleLocalForm(difficulty, extras, seen, strict);
+  const form = assembleLocalForm(difficulty, extras, seen, strict, scope);
   const errors = [...validateForm(form), ...formUniquenessErrors(form, seen)];
   if (errors.length) {
     if (strict) {
       throw new NeedMoreItems(kindFromAssembleErrors(errors));
     }
-    const retry = assembleLocalForm(difficulty, extras, seen, strict);
+    const retry = assembleLocalForm(difficulty, extras, seen, strict, scope);
     const retryErrors = [...validateForm(retry), ...formUniquenessErrors(retry, seen)];
     if (retryErrors.length) throw new Error(retryErrors.join("; "));
     return retry;

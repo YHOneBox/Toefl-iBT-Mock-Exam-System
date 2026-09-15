@@ -1,3 +1,4 @@
+import fs from "fs";
 import { prisma } from "./db";
 import { firstPointer, nextPointer } from "./flow";
 import { parseForm, pointerTitle } from "./form";
@@ -7,7 +8,8 @@ import { generateFormPayload, type GenerateProgress } from "./generation";
 import { fingerprintsFromForm, labelsFromForm, rememberSeen } from "./generation/history";
 import { uniquenessIssues } from "./generation/uniqueness";
 import { routeFromAccuracy, scoreListeningModule, scoreReadingModule } from "./adaptive";
-import { parseScope } from "./scope";
+import { formAudioDir, sessionRecordingDir } from "./paths";
+import { clipScopeToForm, parseScope } from "./scope";
 import { durationForPointer } from "./timing";
 import type { ExamDifficulty, Pointer, RouteLevel, ScopePart, SessionMode } from "./types";
 
@@ -15,7 +17,7 @@ export async function createPreparedForm(
   userId: string,
   difficulty: ExamDifficulty = "standard",
   onProgress?: GenerateProgress,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; jobId?: string; scope?: ScopePart[]; subjects?: string[] },
 ) {
   const payload = await generateFormPayload(difficulty, userId, onProgress, opts);
   onProgress?.({ progress: 76, stage: "Saving the unused paper", detail: "Storing the form before audio" });
@@ -33,7 +35,7 @@ export async function createPreparedForm(
       onProgress?.({
         progress: 78 + Math.round(ratio * 18),
         stage: `Creating audio ${done} / ${total}`,
-        detail: "Listening and speaking clips — browser TTS is used if a clip fails",
+        detail: "Prepared narrator intros, then listening and speaking clips",
       });
     }, opts?.signal);
     const leftover = uniquenessIssues(withAudio);
@@ -57,7 +59,6 @@ export async function createNewTest(userId: string, difficulty: ExamDifficulty =
   return createSession({
     formId: form.id,
     mode: "new",
-    scope: ["full"],
     userId,
   });
 }
@@ -65,7 +66,7 @@ export async function createNewTest(userId: string, difficulty: ExamDifficulty =
 export async function createSession(opts: {
   formId: string;
   mode: SessionMode;
-  scope: ScopePart[];
+  scope?: ScopePart[];
   sourceSessionId?: string;
   allowReadapt?: boolean;
   userId: string;
@@ -73,11 +74,12 @@ export async function createSession(opts: {
   const formRow = await prisma.testForm.findUnique({ where: { id: opts.formId } });
   if (!formRow || formRow.userId !== opts.userId) throw new Error("Form not found");
   const form = parseForm(formRow.payloadJson);
+  const scope = clipScopeToForm(opts.scope, form.scope);
   const source = opts.sourceSessionId
     ? await prisma.examSession.findUnique({ where: { id: opts.sourceSessionId } })
     : null;
   if (source && source.userId !== opts.userId) throw new Error("Source session not found");
-  const pointer = firstPointer(opts.scope, form);
+  const pointer = firstPointer(scope, form);
   const now = new Date();
   const timed = durationForPointer(pointer);
   return prisma.examSession.create({
@@ -85,7 +87,7 @@ export async function createSession(opts: {
       formId: opts.formId,
       userId: opts.userId,
       mode: opts.mode,
-      scopeJson: JSON.stringify(opts.scope),
+      scopeJson: JSON.stringify(scope),
       sourceSessionId: opts.sourceSessionId,
       status: "checkin",
       currentPointer: pointer,
@@ -219,6 +221,45 @@ export async function discardSession(sessionId: string) {
     where: { id: sessionId },
     data: { status: "discarded" },
   });
+}
+
+export function removeSessionFiles(sessionId: string) {
+  const dir = sessionRecordingDir(sessionId);
+  try {
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* keep going even if a recording file is already gone */
+  }
+}
+
+export function removeFormAudioFiles(formId: string) {
+  const dir = formAudioDir(formId);
+  try {
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function removeExamResult(sessionId: string) {
+  const session = await prisma.examSession.findUnique({ where: { id: sessionId } });
+  if (!session) throw new Error("Session not found");
+  removeSessionFiles(sessionId);
+  await prisma.examSession.delete({ where: { id: sessionId } });
+  if (session.userId) {
+    appendActivity(session.userId, "exam", "Removed a sitting from the dashboard", "Scores from this sitting no longer count");
+  }
+  return session;
+}
+
+export async function removeFormWithResults(formId: string, userId: string) {
+  const sessions = await prisma.examSession.findMany({
+    where: { formId, userId },
+    select: { id: true },
+  });
+  for (const row of sessions) removeSessionFiles(row.id);
+  await prisma.testForm.delete({ where: { id: formId } });
+  removeFormAudioFiles(formId);
 }
 
 export async function updateNotepad(sessionId: string, notepad: string) {

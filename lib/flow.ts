@@ -19,7 +19,9 @@ const ORDER: Pointer[] = [
   "writing:discussion",
   "directions:speaking",
   "speaking:check",
+  "speaking:repeat-intro",
   "speaking:repeat",
+  "speaking:interview-intro",
   "speaking:interview",
   "scoring",
   "completed",
@@ -56,8 +58,10 @@ function pointerActive(
     case "directions:speaking":
     case "speaking:check":
       return sectionEnabled(scope, "speaking");
+    case "speaking:repeat-intro":
     case "speaking:repeat":
       return speakingRepeatItems(form, scope).length > 0;
+    case "speaking:interview-intro":
     case "speaking:interview":
       return speakingInterviewItems(form, scope).length > 0;
     default:

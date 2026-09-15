@@ -7,6 +7,32 @@ import type { AudioRef, SpokenSet } from "@/lib/types";
 import { applyPlaybackGain, speechVolume } from "@/lib/playback-gain";
 import { useVoice } from "./voice/voice-context";
 
+function waitForEnglishVoices(ms = 1200): Promise<void> {
+  return new Promise((resolve) => {
+    const ready = () => window.speechSynthesis.getVoices().some((voice) => voice.lang.toLowerCase().startsWith("en"));
+    if (ready()) {
+      resolve();
+      return;
+    }
+    const started = Date.now();
+    const tick = window.setInterval(() => {
+      if (ready() || Date.now() - started >= ms) {
+        window.clearInterval(tick);
+        resolve();
+      }
+    }, 50);
+  });
+}
+
+function leadInMs(audio?: AudioRef | null) {
+  if (audio?.path && !audio.fallbackTts && audio.padded) return 80;
+  return 380;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export function PlayOnceAudio({
   itemKey,
   audio,
@@ -65,6 +91,8 @@ export function PlayOnceAudio({
     stopPlayback();
     const token = gen.current;
     setPlaying(true);
+    await wait(leadInMs(audio));
+    if (token !== gen.current) return;
     if (audio.path && !audio.fallbackTts) {
       const src = appPath(`/api/media?path=${encodeURIComponent(`data/audio/${audio.path}`)}`);
       const el = new Audio(src);
@@ -77,14 +105,17 @@ export function PlayOnceAudio({
       };
       await el.play().catch(() => {
         if (token !== gen.current) return;
-        speak(token);
+        void speak(token);
       });
       return;
     }
-    speak(token);
+    await speak(token);
   }
 
-  function speak(token = gen.current) {
+  async function speak(token = gen.current) {
+    if (token !== gen.current) return;
+    await waitForEnglishVoices();
+    if (token !== gen.current) return;
     const utter = new SpeechSynthesisUtterance(audio.script);
     utter.lang = langForAccent(audio.accent);
     utter.rate = prefs.rate * (audio.rate ?? 1);
@@ -178,21 +209,29 @@ export function DialoguePlayer({
       return;
     }
     const clip = set.lineAudio?.[index];
-    if (!clip?.path || clip.fallbackTts) {
-      speakLine(index, token);
+    const start = () => {
+      if (token !== gen.current) return;
+      if (!clip?.path || clip.fallbackTts) {
+        void speakLine(index, token);
+        return;
+      }
+      const el = new Audio(appPath(`/api/media?path=${encodeURIComponent(`data/audio/${clip.path}`)}`));
+      audioRef.current = el;
+      applyPlaybackGain(el, prefs.volume);
+      el.playbackRate = clip.rate ?? set.audio.rate ?? 1;
+      el.onended = () => {
+        if (token !== gen.current) return;
+        window.setTimeout(() => playLineFile(index + 1, token), lineGap(index));
+      };
+      el.onerror = () => speakLine(index, token);
+      setLineIndex(index);
+      void el.play().catch(() => speakLine(index, token));
+    };
+    if (index === 0) {
+      window.setTimeout(start, leadInMs(clip));
       return;
     }
-    const el = new Audio(appPath(`/api/media?path=${encodeURIComponent(`data/audio/${clip.path}`)}`));
-    audioRef.current = el;
-    applyPlaybackGain(el, prefs.volume);
-    el.playbackRate = clip.rate ?? set.audio.rate ?? 1;
-    el.onended = () => {
-      if (token !== gen.current) return;
-      window.setTimeout(() => playLineFile(index + 1, token), lineGap(index));
-    };
-    el.onerror = () => speakLine(index, token);
-    setLineIndex(index);
-    void el.play().catch(() => speakLine(index, token));
+    start();
   }
 
   function speakLine(index: number, token: number) {
@@ -253,9 +292,37 @@ export function DialoguePlayer({
 export function RecordingPlayer({ path }: { path?: string | null }) {
   const { prefs } = useVoice();
   const ref = useRef<HTMLAudioElement | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
+    setFailed(false);
     if (ref.current) applyPlaybackGain(ref.current, prefs.volume);
   }, [path, prefs.volume]);
-  if (!path) return <p className="text-sm text-[#5b6775]">No recording</p>;
-  return <audio ref={ref} controls src={appPath(`/api/media?path=${encodeURIComponent(path)}`)} className="w-full" />;
+  if (!path) return <p className="text-sm text-[#5b6775]">No recording was saved for this answer.</p>;
+  const src = appPath(`/api/media?path=${encodeURIComponent(path)}`);
+  const type = path.endsWith(".mp3")
+    ? "audio/mpeg"
+    : path.endsWith(".m4a") || path.endsWith(".mp4")
+      ? "audio/mp4"
+      : path.endsWith(".wav")
+        ? "audio/wav"
+        : "audio/webm";
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Your recording</p>
+      {failed ? (
+        <p className="text-sm text-red-700">This recording could not be played. Try another browser, or retake the speaking item.</p>
+      ) : (
+        <audio
+          ref={ref}
+          controls
+          preload="metadata"
+          className="w-full"
+          onError={() => setFailed(true)}
+        >
+          <source src={src} type="audio/mpeg" />
+          <source src={src} type={type} />
+        </audio>
+      )}
+    </div>
+  );
 }

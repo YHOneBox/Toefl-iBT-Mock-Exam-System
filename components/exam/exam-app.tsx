@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { appPath } from "@/lib/base-path";
 import { flattenListeningItems, flattenReadingSets, listeningBundle, pointerTitle, readingBundle, readingItemIds, speakingInterviewItems, speakingRepeatItems } from "@/lib/form";
+import { nextPointer } from "@/lib/flow";
 import { parseScope } from "@/lib/scope";
 import { formatClock } from "@/lib/timing";
 import { addTime, emptyTiming, parseTiming, partKey, type SessionTiming } from "@/lib/timing-log";
 import type { ClientSession } from "@/lib/client-types";
 import type { AcademicSet, CompleteTheWordsSet, DailyLifeSet, Pointer } from "@/lib/types";
-import { PlayOnceAudio } from "../audio-play";
 import { VolumeSlider } from "../voice/voice-context";
 import { GhostButton, PrimaryButton } from "../ui";
 import { AcademicTask, CompleteTheWordsTask, DailyLifeTask } from "../tasks/reading";
 import { ListenChooseTask, SpokenSetTask } from "../tasks/listening";
 import { DiscussionTaskView, EmailTaskView, SentenceBuilder } from "../tasks/writing";
-import { InterviewTask, MicMeter, RepeatTask } from "../tasks/speaking";
+import { InterviewTask, MicCheck, RepeatTask, ScenarioIntro } from "../tasks/speaking";
+import { AnswerRevealProvider } from "./answer-reveal";
+import { ScoringWait } from "./scoring-wait";
 
 async function loadSession(id: string): Promise<ClientSession> {
   const res = await fetch(appPath(`/api/sessions/${id}`), { cache: "no-store" });
@@ -38,6 +40,13 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
   const [hideClock, setHideClock] = useState(false);
   const timingRef = useRef<SessionTiming>(emptyTiming());
   const sliceRef = useRef({ part: null as string | null, item: null as string | null, at: Date.now(), ready: false });
+  const pendingUploads = useRef(0);
+  const finishScoring = useCallback(
+    (_session: ClientSession) => {
+      router.replace(`/review/${sessionId}`);
+    },
+    [router, sessionId],
+  );
 
   useEffect(() => {
     loadSession(sessionId)
@@ -61,7 +70,13 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
   const timedOut = remaining !== null && remaining <= 0;
 
   useEffect(() => {
-    if (timedOut && session && !busy) {
+    if (
+      timedOut &&
+      session &&
+      !busy &&
+      session.currentPointer !== "scoring" &&
+      session.status !== "scoring"
+    ) {
       void goNext();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,38 +145,105 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
   }
 
   async function uploadRecording(itemId: string, blob: Blob) {
-    const data = new FormData();
-    data.set("itemId", itemId);
-    data.set("file", blob, `${itemId}.webm`);
-    await fetch(appPath(`/api/sessions/${sessionId}/record`), { method: "POST", body: data });
-    setSession((prev) =>
-      prev
-        ? {
-            ...prev,
-            responses: { ...prev.responses, [itemId]: { ...prev.responses[itemId], value: { recorded: true } } },
-          }
-        : prev,
-    );
+    pendingUploads.current += 1;
+    try {
+      const mime = blob.type || "audio/webm";
+      const ext = mime.includes("mp4") || mime.includes("m4a") || mime.includes("aac")
+        ? "m4a"
+        : mime.includes("mpeg") || mime.includes("mp3")
+          ? "mp3"
+          : mime.includes("wav")
+            ? "wav"
+            : "webm";
+      const data = new FormData();
+      data.set("itemId", itemId);
+      data.set("file", blob, `${itemId}.${ext}`);
+      const res = await fetch(appPath(`/api/sessions/${sessionId}/record`), { method: "POST", body: data });
+      const payload = (await res.json().catch(() => ({}))) as { path?: string; transcript?: string; error?: string };
+      if (!res.ok) throw new Error(payload.error || "Could not save recording");
+      setSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              responses: {
+                ...prev.responses,
+                [itemId]: {
+                  ...prev.responses[itemId],
+                  value: { recorded: true },
+                  recordingPath: payload.path,
+                  transcript: payload.transcript,
+                },
+              },
+            }
+          : prev,
+      );
+    } finally {
+      pendingUploads.current = Math.max(0, pendingUploads.current - 1);
+    }
+  }
+
+  async function waitForUploads() {
+    const started = Date.now();
+    while (pendingUploads.current > 0 && Date.now() - started < 60_000) {
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    }
   }
 
   async function goNext() {
     if (!session || busy) return;
+    if (session.currentPointer === "scoring" || session.status === "scoring") return;
     flushTiming();
-    setBusy(true);
-    const res = await fetch(appPath(`/api/sessions/${sessionId}/advance`), { method: "POST" });
-    const next = (await res.json()) as ClientSession & { error?: string };
-    setBusy(false);
-    if (res.status === 409 || next.currentPointer === "completed" || next.status === "completed") {
-      router.replace(`/review/${sessionId}`);
-      return;
+    const nextPtr = nextPointer(
+      session.currentPointer as Pointer,
+      parseScope(JSON.stringify(session.scope)),
+      session.form,
+    );
+    const finishing = nextPtr === "scoring" || nextPtr === "completed";
+    if (finishing) {
+      setSession({ ...session, currentPointer: "scoring", status: "scoring" });
+      await waitForUploads();
     }
-    setIndex(0);
-    setReviewJump(null);
-    setSession({ ...next, timing: timingRef.current });
+    setBusy(true);
+    try {
+      const res = await fetch(appPath(`/api/sessions/${sessionId}/advance`), { method: "POST" });
+      const next = (await res.json()) as ClientSession & { error?: string };
+      if (
+        finishing ||
+        next.currentPointer === "scoring" ||
+        next.status === "scoring" ||
+        next.currentPointer === "completed" ||
+        next.status === "completed"
+      ) {
+        if (next.currentPointer === "completed" || next.status === "completed") {
+          router.replace(`/review/${sessionId}`);
+          return;
+        }
+        setSession((prev) =>
+          prev
+            ? { ...prev, ...next, currentPointer: "scoring", status: "scoring", timing: timingRef.current }
+            : prev,
+        );
+        return;
+      }
+      if (res.status === 409) {
+        router.replace(`/review/${sessionId}`);
+        return;
+      }
+      setIndex(0);
+      setReviewJump(null);
+      setSession({ ...next, timing: timingRef.current });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not continue");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (error) return <div className="p-8">{error}</div>;
   if (!session) return <div className="p-8">Loading exam…</div>;
+  if (session.currentPointer === "scoring" || session.status === "scoring") {
+    return <ScoringWait sessionId={sessionId} onComplete={finishScoring} />;
+  }
 
   const pointer = session.currentPointer as Pointer;
   const scope = parseScope(JSON.stringify(session.scope));
@@ -188,6 +270,7 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
   }
 
   return (
+    <AnswerRevealProvider>
     <div className="exam-chrome">
       <header className="exam-header">
         <div className="exam-header-copy">
@@ -286,11 +369,20 @@ export function ExamApp({ sessionId }: { sessionId: string }) {
         </PrimaryButton>
       </footer>
     </div>
+    </AnswerRevealProvider>
   );
 }
 
 function needsAudioGate(pointer: Pointer) {
-  return pointer === "listening:m1" || pointer === "listening:m2" || pointer === "speaking:repeat" || pointer === "speaking:interview";
+  return (
+    pointer === "listening:m1" ||
+    pointer === "listening:m2" ||
+    pointer === "speaking:check" ||
+    pointer === "speaking:repeat-intro" ||
+    pointer === "speaking:repeat" ||
+    pointer === "speaking:interview-intro" ||
+    pointer === "speaking:interview"
+  );
 }
 
 function sectionName(pointer: Pointer) {
@@ -311,8 +403,11 @@ function helpText(pointer: Pointer) {
   if (pointer.startsWith("writing")) {
     return "Build a Sentence: put the words in order. Email: 7 minutes. Discussion: 10 minutes. Spelling tools are off.";
   }
+  if (pointer === "speaking:check") {
+    return "Record the sample sentence, play it back, and record again until it sounds clear. This check is not scored.";
+  }
   if (pointer.startsWith("speaking")) {
-    return "Listen and Repeat: hear the sentence once, then repeat it. Interview: 45 seconds after the question. Each response is recorded once.";
+    return "Listen and Repeat: hear the situation intro, then each sentence once, then repeat it. Interview: hear the intro, then 45 seconds after each question. Each response is recorded once.";
   }
   return "Follow the directions on the screen. The section clock starts when you continue from directions.";
 }
@@ -331,10 +426,13 @@ function progressLabel(session: ClientSession, pointer: Pointer, index: number) 
   }
   if (pointer === "writing:email") return "Question 11 of 12";
   if (pointer === "writing:discussion") return "Question 12 of 12";
+  if (pointer === "speaking:check") return "Microphone check";
+  if (pointer === "speaking:repeat-intro") return "Listen and Repeat intro";
   if (pointer === "speaking:repeat") {
     const n = speakingRepeatItems(session.form, session.scope).length;
     return `Question ${index + 1} of ${n + speakingInterviewItems(session.form, session.scope).length}`;
   }
+  if (pointer === "speaking:interview-intro") return "Interview intro";
   if (pointer === "speaking:interview") {
     const repeats = speakingRepeatItems(session.form, session.scope).length;
     const n = speakingInterviewItems(session.form, session.scope).length;
@@ -513,12 +611,28 @@ function Stage({
     );
   }
   if (pointer === "speaking:check") {
+    return <MicCheck onReady={() => onGate(true)} />;
+  }
+  if (pointer === "speaking:repeat-intro") {
     return (
-      <div className="panel mx-auto max-w-xl p-8">
-        <h1 className="mb-3 text-2xl font-semibold">Microphone check</h1>
-        <p className="mb-4 text-sm">Speak normally and confirm the meter moves.</p>
-        <MicMeter active />
-      </div>
+      <ScenarioIntro
+        title="Listen and Repeat"
+        setting={form.speaking.listenRepeat.setting}
+        script={form.speaking.listenRepeat.scenario}
+        audio={form.speaking.listenRepeat.scenarioAudio}
+        onReady={() => onGate(true)}
+      />
+    );
+  }
+  if (pointer === "speaking:interview-intro") {
+    return (
+      <ScenarioIntro
+        title="Interview"
+        setting={form.speaking.interview.interviewer}
+        script={form.speaking.interview.scenario}
+        audio={form.speaking.interview.scenarioAudio}
+        onReady={() => onGate(true)}
+      />
     );
   }
   if (pointer === "scoring") {
@@ -671,16 +785,7 @@ function Stage({
     );
   }
 
-  return (
-    <div className="panel p-6">
-      <PlayOnceAudio
-        itemKey="speaking-scenario"
-        audio={{ script: form.speaking.listenRepeat.scenario, accent: "us", gender: "female", fallbackTts: true }}
-        hideScript={false}
-        allowReplay
-      />
-    </div>
-  );
+  return <div className="panel p-6">This part of the test is done.</div>;
 }
 
 function Directions({ title, body }: { title: string; body: string }) {

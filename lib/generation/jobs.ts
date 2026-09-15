@@ -5,7 +5,9 @@ import { appendActivity } from "../activity-log";
 import { hasLlmKey } from "../llm";
 import { DATA_DIR } from "../paths";
 import { createPreparedForm, createSession } from "../sessions";
-import type { ExamDifficulty } from "../types";
+import { describeScope, describeSubjects, normalizeScope, normalizeSubjects } from "../scope";
+import type { ExamDifficulty, ScopePart } from "../types";
+import { appendPrepTrace } from "./prep-trace";
 
 export type PrepIntent = "start" | "prepare";
 export type PrepStatus = "queued" | "running" | "ready" | "failed" | "cancelled";
@@ -22,6 +24,8 @@ export type PrepJob = {
   userId: string;
   difficulty: ExamDifficulty;
   intent: PrepIntent;
+  scope?: ScopePart[];
+  subjects?: string[];
   status: PrepStatus;
   progress: number;
   stage: string;
@@ -42,7 +46,7 @@ export const PREP_JOB_LIMIT_MS = 12 * 60 * 1000;
 export const PREP_STALE_MS = 4 * 60 * 1000;
 export const MAX_PREPARE_BATCH = 5;
 export const MAX_HELD_PAPERS = 8;
-const MAX_LOG = 24;
+const MAX_LOG = 160;
 const tails = new Map<string, Promise<void>>();
 const controllers = new Map<string, AbortController>();
 
@@ -111,6 +115,8 @@ export function publicJob(job: PrepJob) {
     id: job.id,
     difficulty: job.difficulty,
     intent: job.intent,
+    scope: job.scope || ["full"],
+    subjects: job.subjects || [],
     status: job.status,
     progress: job.progress,
     stage: job.stage,
@@ -152,6 +158,13 @@ function updateJob(id: string, patch: Partial<PrepJob>) {
   if (patch.stage || patch.detail || typeof patch.progress === "number") {
     pushLog(job, job.progress, job.stage, job.detail);
     appendActivity(job.userId, "generate", job.stage, job.detail);
+    appendPrepTrace(id, {
+      type: "job",
+      progress: job.progress,
+      stage: job.stage,
+      detail: job.detail,
+      error: job.error,
+    });
   }
   saveFile(file);
 }
@@ -164,23 +177,30 @@ export function inflightJobCount(userId: string) {
   ).length;
 }
 
-export function enqueuePrepJob(userId: string, difficulty: ExamDifficulty, intent: PrepIntent): PrepJob {
+export function enqueuePrepJob(
+  userId: string,
+  difficulty: ExamDifficulty,
+  intent: PrepIntent,
+  opts?: { scope?: ScopePart[]; subjects?: string[] },
+): PrepJob {
   const file = loadFile();
   closeStaleJobs(file);
+  const scope = normalizeScope(opts?.scope);
+  const subjects = normalizeSubjects(opts?.subjects);
   const ahead = file.jobs.filter(
     (job) => job.userId === userId && (job.status === "queued" || job.status === "running"),
   ).length;
   const now = nowIso();
   const queued = ahead > 0;
   const stage = queued ? `Waiting behind ${ahead} paper${ahead === 1 ? "" : "s"}` : "Waiting to start";
-  const detail = queued
-    ? "This paper will start when the one ahead finishes. You can stop it any time."
-    : "The paper is queued. You can stop it any time.";
+  const detail = `${describeScope(scope)} · ${describeSubjects(subjects)}`;
   const job: PrepJob = {
     id: randomBytes(9).toString("hex"),
     userId,
     difficulty,
     intent,
+    scope,
+    subjects,
     status: "queued",
     progress: 1,
     stage,
@@ -192,11 +212,12 @@ export function enqueuePrepJob(userId: string, difficulty: ExamDifficulty, inten
   };
   file.jobs.push(job);
   saveFile(file);
+  appendPrepTrace(job.id, { type: "queued", stage, detail, data: { difficulty, scope, subjects, intent } });
   appendActivity(
     userId,
     "generate",
     intent === "prepare" ? "Queued a paper to prepare for later" : "Queued a new paper to start",
-    `${difficulty} · ${stage}`,
+    `${difficulty} · ${detail} · ${stage}`,
   );
   return job;
 }
@@ -316,7 +337,12 @@ async function executeJob(jobId: string) {
           detail: update.detail,
         });
       },
-      { signal: controller.signal },
+      {
+        signal: controller.signal,
+        jobId,
+        scope: current.scope,
+        subjects: current.subjects,
+      },
     );
     const latest = loadFile().jobs.find((row) => row.id === jobId);
     if (!latest || latest.status === "cancelled" || latest.cancelRequested) return;
@@ -325,7 +351,7 @@ async function executeJob(jobId: string) {
       const session = await createSession({
         formId: form.id,
         mode: "new",
-        scope: ["full"],
+        scope: current.scope,
         userId: current.userId,
       });
       updateJob(jobId, {
@@ -374,6 +400,7 @@ async function executeJob(jobId: string) {
       });
       return;
     }
+    appendPrepTrace(jobId, { type: "failed", stage: "Failed", error: jobMessage(err) });
     updateJob(jobId, {
       status: "failed",
       error: jobMessage(err),
