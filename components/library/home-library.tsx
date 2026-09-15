@@ -65,7 +65,7 @@ export function HomeLibrary() {
   const [difficulty, setDifficulty] = useState<ExamDifficulty>("standard");
   const [jobLimitMs, setJobLimitMs] = useState(12 * 60 * 1000);
   const [nowTick, setNowTick] = useState(0);
-  const [prepareCount, setPrepareCount] = useState(2);
+  const [prepareCount, setPrepareCount] = useState(1);
   const [maxHeldPapers, setMaxHeldPapers] = useState(8);
   const [maxPrepareBatch, setMaxPrepareBatch] = useState(5);
   const [unusedCount, setUnusedCount] = useState(0);
@@ -221,6 +221,49 @@ export function HomeLibrary() {
     }
   }
 
+  async function closeJob(jobId: string) {
+    setError(null);
+    try {
+      const res = await fetch(appPath(`/api/generate/${jobId}`), {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (res.status === 401) {
+        window.location.assign(appPath("/login"));
+        return;
+      }
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || "Could not close this record");
+      }
+      setJobs((prev) => prev.filter((row) => row.id !== jobId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not close this record");
+    }
+  }
+
+  async function deleteUnused(formId: string) {
+    if (!window.confirm("Delete this unused paper? You will not be able to start it later.")) return;
+    setError(null);
+    try {
+      const res = await fetch(appPath(`/api/forms/${formId}`), {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (res.status === 401) {
+        window.location.assign(appPath("/login"));
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not delete this paper");
+      setForms((prev) => prev.filter((form) => form.id !== formId));
+      setJobs((prev) => prev.filter((job) => job.formId !== formId));
+      setUnusedCount((n) => Math.max(0, n - 1));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete this paper");
+    }
+  }
+
   async function stopJob(jobId: string) {
     setError(null);
     try {
@@ -369,6 +412,9 @@ export function HomeLibrary() {
                 {(job.status === "queued" || job.status === "running") && (
                   <GhostButton onClick={() => void stopJob(job.id)}>Stop</GhostButton>
                 )}
+                {(job.status === "failed" || job.status === "cancelled") && (
+                  <GhostButton onClick={() => void closeJob(job.id)}>Close</GhostButton>
+                )}
               </div>
             </div>
             {renderJobProgress(job)}
@@ -401,9 +447,12 @@ export function HomeLibrary() {
                     <div className="mt-1 text-xs font-semibold text-[#0f766e]">{difficultyLabel(form.difficulty)}</div>
                     <div className="muted mt-2 text-sm">Prepared and unused — start whenever you want</div>
                   </div>
-                  <PrimaryButton onClick={() => void startSession({ formId: form.id, mode: "new", scope: ["full"] })}>
-                    Start this paper
-                  </PrimaryButton>
+                  <div className="flex flex-wrap gap-2">
+                    <PrimaryButton onClick={() => void startSession({ formId: form.id, mode: "new", scope: ["full"] })}>
+                      Start this paper
+                    </PrimaryButton>
+                    <GhostButton onClick={() => void deleteUnused(form.id)}>Delete</GhostButton>
+                  </div>
                 </div>
               </div>
             ))}

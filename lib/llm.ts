@@ -1,4 +1,4 @@
-import { combineSignals } from "./abort";
+import { combineSignals, sleep } from "./abort";
 import { loadConstraintPack } from "./constraints";
 import {
   callGeminiGenerateJson,
@@ -6,7 +6,15 @@ import {
   loadGeminiSettings,
   rememberGeminiUse,
 } from "./gemini";
-import { geminiLimiter, quotaAwareChain, retryAfterMs, type GeminiWaitInfo } from "./gemini-limiter";
+import { geminiKeys, hasGeminiKey } from "./gemini-keys";
+import {
+  geminiLimiter,
+  isDailyQuotaError,
+  isProjectQuotaError,
+  retryAfterMs,
+  uniqueModelChain,
+  type GeminiWaitInfo,
+} from "./gemini-limiter";
 
 export type LlmJsonOptions = {
   system?: string;
@@ -14,6 +22,8 @@ export type LlmJsonOptions = {
   temperature?: number;
   signal?: AbortSignal;
   onWait?: (info: GeminiWaitInfo) => void;
+  userId?: string;
+  timeoutMs?: number;
 };
 
 function extractJson(text: string): unknown {
@@ -29,55 +39,175 @@ function extractJson(text: string): unknown {
 }
 
 async function geminiJsonWithFallback(opts: LlmJsonOptions & { system: string }): Promise<unknown> {
-  if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY missing");
+  const keys = geminiKeys();
+  if (!keys.length) throw new Error("GEMINI_API_KEY missing");
   await geminiLimiter.hydrate();
-  const settings = await loadGeminiSettings();
+  const settings = await loadGeminiSettings(opts.userId);
   const rawChain = settings.chain.length ? settings.chain : [process.env.GEMINI_MODEL || "gemini-2.5-flash-lite"];
-  const chain = geminiLimiter.readyFirst(
-    quotaAwareChain(
-      rawChain,
-      settings.available.map((model) => model.id),
-    ),
-  );
+  const chain = uniqueModelChain(rawChain);
   const errors: string[] = [];
-  for (const model of chain) {
-    if (geminiLimiter.isCooling(model)) {
-      errors.push(`${model}: cooling down after a rate limit`);
+
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    const entry = keys[keyIndex];
+    if (geminiLimiter.shouldSkipKey(entry.slot)) {
+      const remaining = geminiLimiter.keyRemaining(entry.slot);
+      errors.push(`${entry.label}: AI Studio daily cooldown (${Math.ceil(remaining / 60000)} min left)`);
+      if (keys[keyIndex + 1]) {
+        opts.onWait?.({
+          waitMs: 0,
+          keySlot: entry.slot,
+          reason: `${entry.label} is at its AI Studio daily limit; switching to the ${keys[keyIndex + 1].label}`,
+        });
+      }
       continue;
     }
-    try {
-      const result = await callGeminiGenerateJson({
-        system: opts.system,
-        user: opts.user,
-        temperature: opts.temperature,
-        model,
-        signal: opts.signal,
-        onWait: opts.onWait,
-      });
-      await rememberGeminiUse(model);
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      errors.push(`${model}: ${message}`);
-      await rememberGeminiUse(model, message);
-      if (/401|403|API_KEY|invalid.*key/i.test(message)) break;
-      if (/429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(message)) {
-        const waitMs = retryAfterMs(message);
-        geminiLimiter.noteLimited(model, waitMs);
-        const hours = waitMs >= 60 * 60 * 1000;
+    if (geminiLimiter.allModelsSkipped(chain, entry.slot)) {
+      geminiLimiter.noteKeyLimited(entry.slot);
+      errors.push(`${entry.label}: every model in your order is on a daily cap`);
+      if (keys[keyIndex + 1]) {
         opts.onWait?.({
-          waitMs,
+          waitMs: 0,
+          keySlot: entry.slot,
+          reason: `${entry.label} has no remaining Gemini quota; switching to the ${keys[keyIndex + 1].label}`,
+        });
+      }
+      continue;
+    }
+    if (keyIndex > 0) {
+      opts.onWait?.({
+        waitMs: 0,
+        keySlot: entry.slot,
+        reason: `Using the ${entry.label} because the previous Gemini key hit its AI Studio limit`,
+      });
+    }
+
+    for (let index = 0; index < chain.length; index += 1) {
+      const model = chain[index];
+      const place = `${index + 1} of ${chain.length} in your order`;
+      if (geminiLimiter.shouldSkip(model, entry.slot)) {
+        const remaining = geminiLimiter.coolRemaining(model, entry.slot);
+        errors.push(`${entry.label} ${model}: daily-cap cooldown (${Math.ceil(remaining / 60000)} min left)`);
+        opts.onWait?.({
+          waitMs: remaining,
           model,
-          reason: hours
-            ? `${model} is at its daily cap; switching to a model with unused quota`
-            : `${model} hit its per-minute limit; trying the next unused model`,
+          keySlot: entry.slot,
+          reason: `${model} is on a daily-cap cooldown on the ${entry.label}; trying the next model (${place})`,
         });
         continue;
       }
-      if (/404|not found|NOT_FOUND|not supported/i.test(message) || isTransientLlmError(err)) {
-        continue;
+      const coolMs = geminiLimiter.coolRemaining(model, entry.slot);
+      if (coolMs > 200) {
+        opts.onWait?.({
+          waitMs: coolMs,
+          model,
+          keySlot: entry.slot,
+          reason: `Waiting ${Math.ceil(coolMs / 1000)}s for ${model} (${place}) to leave its per-minute cooldown`,
+        });
+        await sleep(coolMs, opts.signal);
       }
-      throw err;
+      const tryOnce = async () => {
+        opts.onWait?.({
+          waitMs: 0,
+          model,
+          keySlot: entry.slot,
+          reason: `Calling ${model} (${place}) with the ${entry.label}`,
+        });
+        const result = await callGeminiGenerateJson({
+          system: opts.system,
+          user: opts.user,
+          temperature: opts.temperature,
+          model,
+          timeoutMs: opts.timeoutMs,
+          signal: opts.signal,
+          onWait: opts.onWait,
+          apiKey: entry.key,
+          slot: entry.slot,
+        });
+        await rememberGeminiUse(model, undefined, opts.userId);
+        return result;
+      };
+      try {
+        return await tryOnce();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        errors.push(`${entry.label} ${model}: ${message}`);
+        await rememberGeminiUse(model, message, opts.userId);
+        if (/401|403|API_KEY|invalid.*key/i.test(message)) {
+          geminiLimiter.noteKeyLimited(entry.slot, 30 * 60 * 1000);
+          opts.onWait?.({
+            waitMs: 0,
+            model,
+            keySlot: entry.slot,
+            reason: `${entry.label} was rejected; ${keys[keyIndex + 1] ? `switching to the ${keys[keyIndex + 1].label}` : "no more Gemini keys"}`,
+          });
+          break;
+        }
+        if (/429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(message)) {
+          const waitMs = retryAfterMs(message);
+          if (isProjectQuotaError(message)) {
+            geminiLimiter.noteKeyLimited(entry.slot, waitMs);
+            opts.onWait?.({
+              waitMs,
+              model,
+              keySlot: entry.slot,
+              reason: `${entry.label} hit its AI Studio project limit; ${keys[keyIndex + 1] ? `switching to the ${keys[keyIndex + 1].label}` : "no more Gemini keys"}`,
+            });
+            break;
+          }
+          geminiLimiter.noteLimited(model, waitMs, entry.slot);
+          if (isDailyQuotaError(message) || waitMs > 120_000) {
+            opts.onWait?.({
+              waitMs,
+              model,
+              keySlot: entry.slot,
+              reason: `${model} hit its daily cap on the ${entry.label}; trying the next model in your order`,
+            });
+            continue;
+          }
+          opts.onWait?.({
+            waitMs,
+            model,
+            keySlot: entry.slot,
+            reason: `${model} hit its per-minute limit; waiting ${Math.ceil(waitMs / 1000)}s then retrying it before the next model`,
+          });
+          try {
+            await sleep(waitMs, opts.signal);
+            return await tryOnce();
+          } catch (retryErr) {
+            const retryMessage = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            errors.push(`${entry.label} ${model} retry: ${retryMessage}`);
+            await rememberGeminiUse(model, retryMessage, opts.userId);
+            if (/429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(retryMessage)) {
+              const retryWait = retryAfterMs(retryMessage);
+              if (isProjectQuotaError(retryMessage)) {
+                geminiLimiter.noteKeyLimited(entry.slot, retryWait);
+                break;
+              }
+              geminiLimiter.noteLimited(model, retryWait, entry.slot);
+            }
+            continue;
+          }
+        }
+        if (/404|not found|NOT_FOUND|not supported/i.test(message) || isTransientLlmError(err)) {
+          opts.onWait?.({
+            waitMs: 0,
+            model,
+            keySlot: entry.slot,
+            reason: `${model} failed (${message.slice(0, 80)}); trying the next model in your order`,
+          });
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (geminiLimiter.allModelsSkipped(chain, entry.slot) && keys[keyIndex + 1]) {
+      geminiLimiter.noteKeyLimited(entry.slot);
+      opts.onWait?.({
+        waitMs: 0,
+        keySlot: entry.slot,
+        reason: `${entry.label} has no remaining model quota; switching to the ${keys[keyIndex + 1].label}`,
+      });
     }
   }
   throw new Error(errors.join(" | ") || "All Gemini models failed");
@@ -111,14 +241,14 @@ async function openaiJson(opts: LlmJsonOptions): Promise<unknown> {
 }
 
 export function hasLlmKey(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY);
+  return hasGeminiKey() || Boolean(process.env.OPENAI_API_KEY);
 }
 
 export async function generateJson(opts: LlmJsonOptions): Promise<unknown> {
   const system = `${opts.system || "You generate original TOEFL iBT practice items."}\n\n${loadConstraintPack()}`;
   const payload = { ...opts, system };
   const errors: string[] = [];
-  if (process.env.GEMINI_API_KEY) {
+  if (hasGeminiKey()) {
     try {
       return await geminiJsonWithFallback(payload);
     } catch (err) {

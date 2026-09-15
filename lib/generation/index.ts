@@ -37,7 +37,7 @@ function kindFromAssembleErrors(errors: string[]): string {
     [/discussion/, "discussion"],
     [/repeat/, "repeats"],
     [/interview/, "interviews"],
-    [/reuse|seen|duplicate question/, "uniqueness"],
+    [/reuse|seen|duplicate question|fingerprint/, "uniqueness"],
   ];
   for (const [re, kind] of rules) {
     if (re.test(blob)) return kind;
@@ -192,9 +192,11 @@ export async function generateFormPayload(
 ): Promise<TestFormPayload> {
   const level = parseDifficulty(difficulty);
   const signal = opts?.signal;
+  let lastProgress = 4;
   const report = (progress: number, stage: string, detail?: string) => {
     throwIfAborted(signal);
-    onProgress?.({ progress, stage, detail });
+    lastProgress = Math.max(lastProgress, Math.min(99, progress));
+    onProgress?.({ progress: lastProgress, stage, detail });
   };
   report(4, "Loading what you have already seen", "Checking past papers so this sitting does not repeat a question");
   const history = userId ? await seenForUser(userId) : { keys: new Set<string>(), labels: [] as string[] };
@@ -204,7 +206,11 @@ export async function generateFormPayload(
   const avoid = [...history.labels, ...[...history.keys].slice(-40)];
 
   const onWait = (info: GeminiWaitInfo) => {
-    report(Math.max(8, Math.min(68, 12)), "Pacing Gemini requests", info.reason);
+    report(
+      lastProgress,
+      info.waitMs > 200 ? "Pacing Gemini requests" : "Using your Gemini model order",
+      info.reason,
+    );
   };
 
   report(8, "Using unused items already on hand", "Calling the model only if a unique paper cannot be built yet");
@@ -224,7 +230,7 @@ export async function generateFormPayload(
     const kind = missingKind || "valid-paper";
     if (!hasLlmKey()) {
       throw new Error(
-        `Need more unused ${missingLabel(kind)}. Add GEMINI_API_KEY or OPENAI_API_KEY so the app can write original questions instead of repeating old ones.`,
+        `Need more unused ${missingLabel(kind)}. Add GEMINI_API_KEY (and optionally GEMINI_API_KEY_FALLBACK) or OPENAI_API_KEY so the app can write original questions instead of repeating old ones.`,
       );
     }
     report(
@@ -236,11 +242,17 @@ export async function generateFormPayload(
     const created = await createFreshItems(level, assembleLocalForm(level, extras), avoid, {
       scale: round === 0 ? 1 : 2,
       focus: kind,
+      round,
       signal,
       seen: history.keys,
+      userId,
       onWait,
       onBatch: (label) =>
-        report(Math.min(68, 18 + round * 7), `Writing original ${label}`, "Requests are spaced so Flash stays under 5 RPM"),
+        report(
+          Math.min(68, 18 + round * 7),
+          `Writing original ${label}`,
+          "Using the Gemini fallback order saved for this account",
+        ),
     });
     if (created.added > 0) {
       extras = appendGrownBank(created.bank);
@@ -269,7 +281,7 @@ export async function generateFormPayload(
 
   if (!neededLlm) {
     report(70, "Refreshing unused writing prompts", "One paced Gemini call so the email and discussion stay unused");
-    await enrichUntilUnseen(form, level, avoid, history.keys, signal, onWait);
+    await enrichUntilUnseen(form, level, avoid, history.keys, signal, onWait, userId);
   } else {
     report(70, "Skipping extra writing refresh", "The model already ran for missing items; no second Gemini wave");
   }
@@ -289,6 +301,7 @@ async function enrichUntilUnseen(
   seen: Set<string>,
   signal?: AbortSignal,
   onWait?: (info: GeminiWaitInfo) => void,
+  userId?: string,
 ) {
   const keepEmail = { ...form.writing.email };
   const keepDiscussion = {
@@ -299,7 +312,7 @@ async function enrichUntilUnseen(
   if (!hasLlmKey()) return;
   throwIfAborted(signal);
   try {
-    await enrichWithLlm(form, level, avoid, signal, onWait);
+    await enrichWithLlm(form, level, avoid, signal, onWait, userId);
   } catch {
     Object.assign(form.writing.email, keepEmail);
     form.writing.discussion.course = keepDiscussion.course;

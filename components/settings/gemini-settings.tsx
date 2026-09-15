@@ -31,6 +31,10 @@ export function GeminiSettings() {
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [keyPresent, setKeyPresent] = useState(true);
+  const [primaryKeyPresent, setPrimaryKeyPresent] = useState(true);
+  const [fallbackKeyPresent, setFallbackKeyPresent] = useState(false);
+  const [groqPresent, setGroqPresent] = useState(false);
+  const [openaiPresent, setOpenaiPresent] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [homeHref, setHomeHref] = useState("/");
 
@@ -54,8 +58,19 @@ export function GeminiSettings() {
 
   async function loadSaved() {
       const res = await fetch(appPath("/api/llm/settings"), { cache: "no-store" });
-    const data = (await res.json()) as { settings?: Settings; keyPresent?: boolean };
+    const data = (await res.json()) as {
+      settings?: Settings;
+      keyPresent?: boolean;
+      primaryKeyPresent?: boolean;
+      fallbackKeyPresent?: boolean;
+      groqPresent?: boolean;
+      openaiPresent?: boolean;
+    };
     setKeyPresent(Boolean(data.keyPresent));
+    setPrimaryKeyPresent(Boolean(data.primaryKeyPresent ?? data.keyPresent));
+    setFallbackKeyPresent(Boolean(data.fallbackKeyPresent));
+    setGroqPresent(Boolean(data.groqPresent));
+    setOpenaiPresent(Boolean(data.openaiPresent));
     applySettings(data.settings);
     if (data.settings?.available?.length) {
       setStatus(
@@ -134,7 +149,7 @@ export function GeminiSettings() {
       const data = (await res.json()) as { settings?: Settings; error?: string };
       if (!res.ok) throw new Error(data.error || "Save failed");
       applySettings(data.settings);
-      setStatus("Fallback order saved. Generation still prefers unused 2.5 quota and waits between requests so Flash stays under 5 RPM.");
+      setStatus("Fallback order saved for this account. Generation tries these models from top to bottom.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -169,11 +184,10 @@ export function GeminiSettings() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Gemini model fallback</h1>
         <p className="muted mt-2 max-w-2xl text-sm leading-6">
-          Drag rows to change try order. Generation does not fire every model at once: requests are spaced
-          (about 4 per minute for Flash, 8 for Lite), and unused Gemini 2.5 Flash / Flash-Lite quota is
-          tried first so 3.x models that are already at 5 RPM or 20 RPD are not burned. A daily-cap 429
-          cools that model for hours. Timeouts and per-minute limits move to the next model. OpenAI stays
-          last if it is configured.
+          Each signed-in account has its own order. Drag rows to change try order. Generation follows this
+          list from top to bottom on the primary Gemini key. If that key hits its AI Studio daily limit,
+          the same order is retried on GEMINI_API_KEY_FALLBACK. OpenAI stays last if it is configured.
+          Speaking recordings are transcribed with Groq Whisper, then OpenAI Whisper if Groq is unavailable.
         </p>
       </div>
 
@@ -182,6 +196,11 @@ export function GeminiSettings() {
           GEMINI_API_KEY is missing in .env. Add it, restart the app, then scan.
         </div>
       )}
+      <div className="muted mb-4 text-sm">
+        Keys loaded: primary Gemini {primaryKeyPresent ? "yes" : "no"} · fallback Gemini{" "}
+        {fallbackKeyPresent ? "yes" : "no"} · Groq Whisper {groqPresent ? "yes" : "no"} · OpenAI{" "}
+        {openaiPresent ? "yes" : "no"}
+      </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
         <PrimaryButton disabled={scanning || !keyPresent} onClick={() => void scan()}>

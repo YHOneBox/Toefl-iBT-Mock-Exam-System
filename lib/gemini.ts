@@ -1,6 +1,7 @@
 import { combineSignals } from "./abort";
 import { geminiLimiter, type GeminiWaitInfo } from "./gemini-limiter";
-import { getJsonSetting, getSetting, setSetting } from "./settings";
+import { geminiKeys, type GeminiKeySlot } from "./gemini-keys";
+import { getJsonSetting, setSetting } from "./settings";
 
 const GEMINI_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_TIMEOUT_MS = 40_000;
@@ -21,6 +22,9 @@ export type GeminiSettings = {
   scannedAt?: string | null;
   lastUsed?: string | null;
   lastError?: string | null;
+  userChains?: Record<string, string[]>;
+  userLastUsed?: Record<string, string | null>;
+  userLastError?: Record<string, string | null>;
 };
 
 const SKIP_RE = /embedding|imagen|[-_]image\b|veo|tts|audio|lyria|robotics|computer-use|image-generation|live/i;
@@ -64,12 +68,14 @@ export function isTransientLlmError(err: unknown): boolean {
   );
 }
 
-export async function listGeminiModels(apiKey: string): Promise<GeminiModelInfo[]> {
+export async function listGeminiModels(apiKey?: string): Promise<GeminiModelInfo[]> {
+  const key = apiKey || geminiKeys()[0]?.key;
+  if (!key) throw new Error("GEMINI_API_KEY missing");
   const models: GeminiModelInfo[] = [];
   let pageToken = "";
   for (let i = 0; i < 8; i++) {
     const url = new URL(`${GEMINI_ROOT}/models`);
-    url.searchParams.set("key", apiKey);
+    url.searchParams.set("key", key);
     url.searchParams.set("pageSize", "100");
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
@@ -122,45 +128,85 @@ export function defaultGeminiChain(availableIds: string[] = []): string[] {
   return [...known, ...extras];
 }
 
-export async function loadGeminiSettings(): Promise<GeminiSettings> {
-  const stored = await getJsonSetting<GeminiSettings>("gemini", { chain: [], available: [] });
+function emptyGeminiSettings(): GeminiSettings {
+  return {
+    chain: [],
+    available: [],
+    userChains: {},
+    userLastUsed: {},
+    userLastError: {},
+  };
+}
+
+export async function loadGeminiRecord(): Promise<GeminiSettings> {
+  const stored = await getJsonSetting<GeminiSettings>("gemini", emptyGeminiSettings());
   if (!stored.chain) stored.chain = [];
   if (!stored.available) stored.available = [];
+  if (!stored.userChains) stored.userChains = {};
+  if (!stored.userLastUsed) stored.userLastUsed = {};
+  if (!stored.userLastError) stored.userLastError = {};
   if (!stored.chain.length) {
     stored.chain = defaultGeminiChain(stored.available.map((m) => m.id));
   }
   return stored;
 }
 
+export async function loadGeminiSettings(userId?: string): Promise<GeminiSettings> {
+  const stored = await loadGeminiRecord();
+  const chain = userId && stored.userChains?.[userId]?.length ? stored.userChains[userId] : stored.chain;
+  return {
+    ...stored,
+    chain,
+    lastUsed: (userId && stored.userLastUsed?.[userId]) || stored.lastUsed,
+    lastError: (userId && stored.userLastError?.[userId]) || stored.lastError,
+  };
+}
+
 export async function saveGeminiAvailable(models: GeminiModelInfo[]): Promise<GeminiSettings> {
-  const current = await loadGeminiSettings();
+  const current = await loadGeminiRecord();
   const ids = new Set(models.map((m) => m.id));
-  const chain = current.chain.filter((id) => ids.has(id));
+  const fallback = defaultGeminiChain(models.filter((m) => m.recommended).map((m) => m.id));
+  const filterChain = (chain: string[]) => {
+    const next = chain.filter((id) => ids.has(id));
+    return next.length ? next : fallback;
+  };
+  const userChains: Record<string, string[]> = {};
+  for (const [uid, chain] of Object.entries(current.userChains || {})) {
+    userChains[uid] = filterChain(chain);
+  }
   const next: GeminiSettings = {
     ...current,
     available: models,
     scannedAt: new Date().toISOString(),
-    chain: chain.length ? chain : defaultGeminiChain(models.filter((m) => m.recommended).map((m) => m.id)),
+    chain: filterChain(current.chain),
+    userChains,
   };
   await setSetting("gemini", JSON.stringify(next));
   return next;
 }
 
-export async function saveGeminiChain(chain: string[]): Promise<GeminiSettings> {
-  const current = await loadGeminiSettings();
-  const next: GeminiSettings = {
-    ...current,
-    chain: [...new Set(chain.map(stripModelPrefix).filter(Boolean))],
-    lastError: null,
-  };
-  await setSetting("gemini", JSON.stringify(next));
-  return next;
+export async function saveGeminiChain(chain: string[], userId?: string): Promise<GeminiSettings> {
+  const current = await loadGeminiRecord();
+  const nextChain = [...new Set(chain.map(stripModelPrefix).filter(Boolean))];
+  if (userId) {
+    current.userChains = { ...current.userChains, [userId]: nextChain };
+    current.userLastError = { ...current.userLastError, [userId]: null };
+  } else {
+    current.chain = nextChain;
+  }
+  current.lastError = null;
+  await setSetting("gemini", JSON.stringify(current));
+  return loadGeminiSettings(userId);
 }
 
-export async function rememberGeminiUse(model: string, error?: string) {
-  const current = await loadGeminiSettings();
+export async function rememberGeminiUse(model: string, error?: string, userId?: string) {
+  const current = await loadGeminiRecord();
   current.lastUsed = model;
   current.lastError = error || null;
+  if (userId) {
+    current.userLastUsed = { ...current.userLastUsed, [userId]: model };
+    current.userLastError = { ...current.userLastError, [userId]: error || null };
+  }
   await setSetting("gemini", JSON.stringify(current));
   if (model) await setSetting("geminiLastUsed", model);
 }
@@ -173,11 +219,13 @@ export async function callGeminiGenerateJson(opts: {
   timeoutMs?: number;
   signal?: AbortSignal;
   onWait?: (info: GeminiWaitInfo) => void;
+  apiKey: string;
+  slot: GeminiKeySlot;
 }): Promise<unknown> {
-  const key = process.env.GEMINI_API_KEY;
+  const key = opts.apiKey?.trim();
   if (!key) throw new Error("GEMINI_API_KEY missing");
   const model = stripModelPrefix(opts.model);
-  await geminiLimiter.waitFor(model, opts.signal, opts.onWait);
+  await geminiLimiter.waitFor(model, opts.signal, opts.onWait, opts.slot);
   const url = `${GEMINI_ROOT}/models/${model}:generateContent?key=${key}`;
   let res: Response;
   try {

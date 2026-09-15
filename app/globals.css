@@ -312,6 +312,13 @@ textarea {
   text-decoration: none;
 }
 
+.app-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .app-brand-mark {
   display: grid;
   place-items: center;
@@ -630,6 +637,120 @@ textarea {
   height: 100%;
   background: linear-gradient(90deg, #0f766e, #f97316);
   transition: width 0.35s ease;
+}
+
+.app-log-btn {
+  border: 1px solid #7ec8c0;
+  border-radius: 4px;
+  background: transparent;
+  color: #e7f4f1;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-log-btn:hover {
+  background: #0d9488;
+}
+
+.app-log-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  background: rgba(15, 23, 20, 0.45);
+}
+
+.app-log-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(28rem, 100%);
+  max-width: 100%;
+  background: #f4faf8;
+  color: #14221f;
+  box-shadow: 12px 0 32px -18px rgba(15, 23, 20, 0.45);
+}
+
+.app-log-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 8px;
+}
+
+.app-log-panel-kicker {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.app-log-panel-head h2 {
+  margin: 2px 0 0;
+  font-size: 1.15rem;
+}
+
+.app-log-panel-note {
+  margin: 0 16px 8px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.app-log-list {
+  margin: 0;
+  padding: 0 16px 24px;
+  overflow: auto;
+  list-style: none;
+}
+
+.app-log-list > li {
+  padding: 10px 0;
+  border-top: 1px solid #d7e6e1;
+}
+
+.app-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: #5b6775;
+}
+
+.app-log-kind {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.app-log-kind-generate {
+  color: #0f766e;
+}
+
+.app-log-kind-exam {
+  color: #c2410c;
+}
+
+.app-log-kind-account {
+  color: #1f4e79;
+}
+
+.app-log-title {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.app-log-detail {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .app-modal {

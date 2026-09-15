@@ -85,13 +85,20 @@ function asQuestion(raw: unknown, fallback: Cefr, stimulus: string): McqQuestion
   };
 }
 
-async function requestJson(user: string, signal?: AbortSignal, onWait?: LlmJsonOptions["onWait"]): Promise<unknown> {
+async function requestJson(
+  user: string,
+  signal?: AbortSignal,
+  onWait?: LlmJsonOptions["onWait"],
+  userId?: string,
+): Promise<unknown> {
   return generateJson({
     system: SYSTEM,
     user,
     temperature: 0.85,
     signal,
     onWait,
+    userId,
+    timeoutMs: 55_000,
   });
 }
 
@@ -102,12 +109,13 @@ async function withRetry<T>(
   attempts = 2,
   signal?: AbortSignal,
   onWait?: LlmJsonOptions["onWait"],
+  userId?: string,
 ): Promise<T | null> {
   let lastError = "";
   for (let i = 0; i < attempts; i += 1) {
     if (signal?.aborted) throw new Error("Preparation was stopped.");
     try {
-      const data = await requestJson(buildUser(lastError), signal, onWait);
+      const data = await requestJson(buildUser(lastError), signal, onWait, userId);
       const parsed = parse(data);
       if (!parsed) {
         lastError = "JSON shape was incomplete";
@@ -119,6 +127,9 @@ async function withRetry<T>(
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       if (signal?.aborted || /stopped/i.test(lastError)) throw err instanceof Error ? err : new Error(lastError);
+      if (/GEMINI_API_KEY missing|401|403|invalid.*key|All Gemini models failed/i.test(lastError)) {
+        throw err instanceof Error ? err : new Error(lastError);
+      }
     }
   }
   return null;
@@ -404,9 +415,27 @@ const FOCUS_BATCHES: Record<string, string[]> = {
   conversations: ["listening-sets"],
   announcements: ["listening-sets"],
   talks: ["listening-sets"],
-  uniqueness: ["writing-prompts", "sentences", "daily"],
-  "valid-paper": ["writing-prompts", "sentences", "daily", "reading"],
 };
+
+const UNIQUENESS_CYCLE = [
+  "daily",
+  "sentences",
+  "writing-prompts",
+  "listen-choose",
+  "listening-sets",
+  "reading",
+  "academic",
+  "speaking",
+];
+
+function batchIdsForFocus(focus?: string, round = 0): Set<string> | null {
+  if (!focus) return null;
+  if (focus === "uniqueness" || focus === "valid-paper") {
+    return new Set([UNIQUENESS_CYCLE[round % UNIQUENESS_CYCLE.length]]);
+  }
+  const mapped = FOCUS_BATCHES[focus];
+  return mapped ? new Set(mapped) : null;
+}
 
 export async function createFreshItems(
   difficulty: ExamDifficulty,
@@ -416,8 +445,10 @@ export async function createFreshItems(
     scale?: number;
     onBatch?: (label: string) => void;
     focus?: string;
+    round?: number;
     signal?: AbortSignal;
     seen?: Set<string>;
+    userId?: string;
     onWait?: LlmJsonOptions["onWait"];
   },
 ): Promise<{ bank: GrownBank; added: number; focus?: string }> {
@@ -456,6 +487,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (items) bank.ctw.push(...items.filter((item) => !checkCtwSeed(item).length));
       },
@@ -475,6 +507,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (items) bank.daily.push(...items.filter((item) => !checkDailySeed(item).length));
       },
@@ -497,6 +530,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (item) bank.academic.push(item);
       },
@@ -516,6 +550,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (items) bank.choose.push(...items.filter((item) => !checkChooseSeed(item).length));
       },
@@ -551,6 +586,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (!bundle) return;
         bank.talks.push(...bundle.talks.filter((item) => !checkSpokenSeed(item).length));
@@ -573,6 +609,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (items) bank.sentences.push(...items.filter((item) => !checkSentenceSeed(item).length));
       },
@@ -605,6 +642,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (!bundle) return;
         bank.emails.push(...bundle.emails.filter((item) => !checkEmailSeed(item).length));
@@ -639,6 +677,7 @@ ${retryNote(err)}`,
           retry,
           signal,
           onWait,
+          opts?.userId,
         );
         if (!bundle) return;
         if (bundle.repeat && !checkRepeatSeed(bundle.repeat).length) bank.repeats.push(bundle.repeat);
@@ -647,7 +686,7 @@ ${retryNote(err)}`,
     },
   ];
 
-  const wanted = opts?.focus ? new Set(FOCUS_BATCHES[opts.focus] || []) : null;
+  const wanted = batchIdsForFocus(opts?.focus, opts?.round || 0);
   const selected = wanted?.size ? batches.filter((batch) => wanted.has(batch.id)) : batches;
 
   for (const batch of selected) {
@@ -659,6 +698,7 @@ ${retryNote(err)}`,
       if (signal?.aborted) break;
       const message = err instanceof Error ? err.message : String(err);
       if (/stopped/i.test(message)) break;
+      if (/GEMINI_API_KEY missing|401|403|invalid.*key|All Gemini models failed/i.test(message)) throw err;
     }
   }
   dropSeenFromBank(bank, opts?.seen);

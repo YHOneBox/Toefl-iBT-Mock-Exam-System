@@ -3,6 +3,7 @@ import { scoreListeningModule, scoreReadingModule } from "./adaptive";
 import { prisma } from "./db";
 import { parseForm } from "./form";
 import { generateJson, hasLlmKey } from "./llm";
+import { appendActivity } from "./activity-log";
 import {
   buildBands,
   cefrFromBand,
@@ -89,13 +90,14 @@ function heuristicInterviewScore(text: string): number {
   return 5;
 }
 
-async function llmScore(kind: string, prompt: string, response: string) {
+async function llmScore(kind: string, prompt: string, response: string, userId?: string | null) {
   try {
     const data = (await generateJson({
       system:
         "Score a TOEFL constructed response. Return JSON with score (0-5 integer), traits (object), evidence (string[]), how_to_improve (string).",
       user: `Task type: ${kind}\nPrompt:\n${prompt}\n\nResponse:\n${response}`,
       temperature: 0.2,
+      userId: userId ?? undefined,
     })) as { score?: number; traits?: unknown; evidence?: string[]; how_to_improve?: string };
     return {
       score: Math.max(0, Math.min(5, Math.round(Number(data.score) || 0))),
@@ -168,7 +170,12 @@ export async function scoreSession(sessionId: string) {
       const sampleAnswer = chooseEmailSample(form.writing.email, form.writing.email.sampleAnswer);
       const ai =
         hasLlmKey() && text.trim()
-          ? await llmScore("write_email", `${form.writing.email.scenario}\nGoal: ${form.writing.email.goal}`, text)
+          ? await llmScore(
+              "write_email",
+              `${form.writing.email.scenario}\nGoal: ${form.writing.email.goal}`,
+              text,
+              session.userId,
+            )
           : {
               score: heuristicEmailScore(text, form.writing.email.goal),
               traits: { method: "heuristic" },
@@ -191,7 +198,7 @@ export async function scoreSession(sessionId: string) {
       const sampleAnswer = sampleDiscussionAnswer(form.writing.discussion);
       const ai =
         hasLlmKey() && text.trim()
-          ? await llmScore("write_discussion", prompt, text)
+          ? await llmScore("write_discussion", prompt, text, session.userId)
           : {
               score: heuristicDiscussionScore(text, prompt),
               traits: { method: "heuristic" },
@@ -249,7 +256,7 @@ export async function scoreSession(sessionId: string) {
         }
         const ai =
           hasLlmKey() && transcript.trim()
-            ? await llmScore("take_interview", item.prompt, transcript)
+            ? await llmScore("take_interview", item.prompt, transcript, session.userId)
             : {
                 score: heuristicInterviewScore(transcript),
                 traits: { method: "heuristic-or-transcript" },
@@ -316,5 +323,6 @@ export async function scoreSession(sessionId: string) {
     where: { id: sessionId },
     data: { status: "completed", currentPointer: "completed", completedAt: new Date() },
   });
+  appendActivity(session.userId, "exam", "Finished scoring a sitting");
   return { raw, bands, concordance, traits, itemResults };
 }

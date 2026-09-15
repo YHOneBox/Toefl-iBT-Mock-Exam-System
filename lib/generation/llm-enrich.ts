@@ -7,6 +7,7 @@ export async function enrichWithLlm(
   avoid: string[] = [],
   signal?: AbortSignal,
   onWait?: LlmJsonOptions["onWait"],
+  userId?: string,
 ): Promise<void> {
   const level =
     difficulty === "easier"
@@ -24,6 +25,8 @@ The email sampleAnswer must be a complete student email (90-130 words): greeting
     temperature: 0.8,
     signal,
     onWait,
+    userId,
+    timeoutMs: 55_000,
   })) as {
     email?: { scenario?: string; audience?: string; goal?: string; sampleAnswer?: string };
     discussion?: {

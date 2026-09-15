@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { randomBytes } from "crypto";
+import { appendActivity } from "../activity-log";
 import { hasLlmKey } from "../llm";
 import { DATA_DIR } from "../paths";
 import { createPreparedForm, createSession } from "../sessions";
@@ -33,6 +34,7 @@ export type PrepJob = {
   deadlineAt?: string;
   createdAt: string;
   updatedAt: string;
+  hidden?: boolean;
 };
 
 const JOBS_PATH = path.join(DATA_DIR, "prep-jobs.json");
@@ -126,7 +128,7 @@ export function publicJob(job: PrepJob) {
 export function listJobsForUser(userId: string) {
   const file = loadFile();
   if (closeStaleJobs(file)) saveFile(file);
-  return file.jobs.filter((job) => job.userId === userId).map(publicJob);
+  return file.jobs.filter((job) => job.userId === userId && !job.hidden).map(publicJob);
 }
 
 export function getJobForUser(userId: string, jobId: string) {
@@ -149,6 +151,7 @@ function updateJob(id: string, patch: Partial<PrepJob>) {
   Object.assign(job, patch, { updatedAt: nowIso() });
   if (patch.stage || patch.detail || typeof patch.progress === "number") {
     pushLog(job, job.progress, job.stage, job.detail);
+    appendActivity(job.userId, "generate", job.stage, job.detail);
   }
   saveFile(file);
 }
@@ -189,6 +192,12 @@ export function enqueuePrepJob(userId: string, difficulty: ExamDifficulty, inten
   };
   file.jobs.push(job);
   saveFile(file);
+  appendActivity(
+    userId,
+    "generate",
+    intent === "prepare" ? "Queued a paper to prepare for later" : "Queued a new paper to start",
+    `${difficulty} · ${stage}`,
+  );
   return job;
 }
 
@@ -206,7 +215,33 @@ export function cancelPrepJob(userId: string, jobId: string) {
   pushLog(job, job.progress, job.stage, job.detail);
   saveFile(file);
   controllers.get(jobId)?.abort();
+  appendActivity(userId, "generate", "Stopped a preparation", job.detail);
   return publicJob(job);
+}
+
+export function dismissPrepJob(userId: string, jobId: string) {
+  const file = loadFile();
+  const job = file.jobs.find((row) => row.id === jobId && row.userId === userId);
+  if (!job) return null;
+  if (job.status === "queued" || job.status === "running") return null;
+  job.hidden = true;
+  job.updatedAt = nowIso();
+  saveFile(file);
+  appendActivity(userId, "generate", "Closed a preparation record", job.error || job.stage);
+  return publicJob(job);
+}
+
+export function hideJobsForForm(userId: string, formId: string) {
+  const file = loadFile();
+  let dirty = false;
+  for (const job of file.jobs) {
+    if (job.userId === userId && job.formId === formId && !job.hidden) {
+      job.hidden = true;
+      job.updatedAt = nowIso();
+      dirty = true;
+    }
+  }
+  if (dirty) saveFile(file);
 }
 
 export function runPrepJob(jobId: string) {

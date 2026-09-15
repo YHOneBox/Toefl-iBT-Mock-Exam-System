@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { firstPointer, nextPointer } from "./flow";
-import { parseForm } from "./form";
+import { parseForm, pointerTitle } from "./form";
+import { appendActivity } from "./activity-log";
 import { attachFormAudio } from "./generation/audio-fill";
 import { generateFormPayload, type GenerateProgress } from "./generation";
 import { fingerprintsFromForm, labelsFromForm, rememberSeen } from "./generation/history";
@@ -94,6 +95,14 @@ export async function createSession(opts: {
       sectionStartedAt: timed ? now : null,
       sectionEndsAt: timed ? new Date(now.getTime() + timed) : null,
     },
+  }).then((session) => {
+    appendActivity(
+      opts.userId,
+      "exam",
+      opts.mode === "new" ? "Started a sitting" : opts.mode === "retake" ? "Started a full retake" : "Started a redo sitting",
+      pointerTitle(pointer),
+    );
+    return session;
   });
 }
 
@@ -184,7 +193,7 @@ export async function advanceSession(sessionId: string) {
   const keepClock = next.startsWith("reading:review");
   const startsClock = timed !== null && !keepClock;
 
-  return prisma.examSession.update({
+  const updated = await prisma.examSession.update({
     where: { id: sessionId },
     data: {
       currentPointer: next,
@@ -196,6 +205,12 @@ export async function advanceSession(sessionId: string) {
         startsClock && timed ? new Date(now.getTime() + timed) : keepClock ? session.sectionEndsAt : null,
     },
   });
+  if (next !== "scoring" && next !== "completed") {
+    appendActivity(session.userId, "exam", `Moved to ${pointerTitle(next)}`);
+  } else {
+    appendActivity(session.userId, "exam", "Submitted the sitting");
+  }
+  return updated;
 }
 
 export async function discardSession(sessionId: string) {

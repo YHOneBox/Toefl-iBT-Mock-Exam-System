@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { appendActivity } from "@/lib/activity-log";
 import { authCookie, isSecureRequest, loginUser, publicUser } from "@/lib/auth";
 
 export async function POST(req: Request) {
@@ -8,6 +9,7 @@ export async function POST(req: Request) {
   }
   try {
     const { user, token } = await loginUser(body.username, body.password);
+    appendActivity(user.id, "account", "Signed in");
     const res = NextResponse.json({ user: publicUser(user) });
     res.cookies.set(authCookie(token, isSecureRequest(req)));
     return res;
